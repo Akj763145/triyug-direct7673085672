@@ -1,0 +1,106 @@
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
+import { Badge } from "../components/ui/badge";
+import { mockTransactions } from "../data/mockDb";
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
+
+const expenseData = [
+  { name: "Payroll", value: 450000 },
+  { name: "Rent & Utilities", value: 120000 },
+  { name: "Resources", value: 85000 },
+  { name: "Marketing", value: 40000 },
+];
+const COLORS = ["#06b6d4", "#a855f7", "#3b82f6", "#ef4444"];
+
+export function Ledger() {
+  return (
+    <div className="space-y-6">
+      <h2 className="text-3xl font-bold tracking-tight">Ledger & Financial Hub</h2>
+      
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="bg-primary/10 border-primary/20">
+          <CardContent className="p-6">
+            <h3 className="text-sm font-medium tracking-tight text-primary mb-2">Net Balance</h3>
+            <div className="text-4xl font-bold text-primary">â¹2,450,000</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <h3 className="text-sm font-medium tracking-tight text-muted-foreground mb-2">Total Revenue</h3>
+            <div className="text-3xl font-bold text-emerald-500">â¹3,145,000</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <h3 className="text-sm font-medium tracking-tight text-muted-foreground mb-2">Total Expenses</h3>
+            <div className="text-3xl font-bold text-destructive">â¹695,000</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="md:col-span-1">
+          <CardHeader>
+            <CardTitle>Expense Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent className="h-[300px] flex items-center justify-center">
+             <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={expenseData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                    stroke="none"
+                  >
+                    {expenseData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#121214', border: 'none', borderRadius: '8px', color: '#fff' }}
+                    itemStyle={{ color: '#fff' }}
+                    formatter={(value: number) => `â¹${value.toLocaleString()}`}
+                  />
+                  <Legend verticalAlign="bottom" height={36}/>
+                </PieChart>
+              </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <CardTitle>Central Transaction Ledger</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+             <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {mockTransactions.map((txn) => (
+                  <TableRow key={txn.id}>
+                    <TableCell className="text-muted-foreground">{txn.date}</TableCell>
+                    <TableCell className="font-medium">{txn.description}</TableCell>
+                    <TableCell><Badge variant="outline">{txn.category}</Badge></TableCell>
+                    <TableCell className={`text-right font-bold ${txn.type === "Income" ? "text-emerald-500" : "text-foreground"}`}>
+                      {txn.type === "Income" ? "+" : "-"}â¹{txn.amount.toLocaleString()}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
