@@ -1,6 +1,7 @@
-import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, UserCog, Receipt, BookOpen, Layers } from "lucide-react";
+import { NavLink, useNavigate } from "react-router-dom";
+import { LayoutDashboard, Users, UserCog, Receipt, BookOpen, Layers, LogOut } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { Button } from "../ui/button";
 
 const navItems = [
   { name: "Dashboard", to: "/", icon: LayoutDashboard },
@@ -12,6 +13,13 @@ const navItems = [
 ];
 
 export function Sidebar() {
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    localStorage.removeItem("triyuga_auth");
+    window.location.reload(); // Hard reload to clear App state
+  };
+
   return (
     <aside className="w-64 flex-shrink-0 border-r bg-card hidden md:flex flex-col h-screen sticky top-0">
       <div className="h-16 flex items-center px-6 border-b">
@@ -36,8 +44,18 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
-      <div className="p-4 border-t text-xs text-muted-foreground text-center">
-        &copy; {new Date().getFullYear()} Triyuga Classes
+      <div className="p-4 border-t space-y-4">
+        <Button 
+          variant="ghost" 
+          className="w-full justify-start text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+          onClick={handleLogout}
+        >
+          <LogOut className="mr-2 h-4 w-4" />
+          Logout
+        </Button>
+        <div className="text-xs text-muted-foreground text-center">
+          &copy; {new Date().getFullYear()} Triyuga Classes
+        </div>
       </div>
     </aside>
   );

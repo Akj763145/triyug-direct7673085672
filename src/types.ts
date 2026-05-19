@@ -49,3 +49,45 @@ export interface ActivityLog {
   time: string;
   user: string;
 }
+
+export interface PerformanceRecord {
+  date: string;
+  score: number;
+  subject: string;
+}
+
+export interface SessionAttendance {
+  subject: string;
+  time: string;
+  status: "Present" | "Absent" | "Late";
+}
+
+export interface AttendanceRecord {
+  date: string;
+  status: "Present" | "Absent" | "Late" | "Holiday";
+  sessions?: SessionAttendance[];
+}
+
+export interface CommunicationLog {
+  id: string;
+  date: string;
+  type: "Teacher Note" | "Parent SMS" | "System Alert";
+  sender: string;
+  message: string;
+}
+
+export interface TeacherRemark {
+  id: string;
+  date: string;
+  teacherName: string;
+  comment: string;
+  category: "Academic" | "Behavior" | "Attendance";
+}
+
+export interface StudentAssignment {
+  id: string;
+  title: string;
+  dueDate: string;
+  status: "Pending" | "Submitted" | "Late" | "Graded";
+  score?: number;
+}

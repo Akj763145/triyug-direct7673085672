@@ -1,19 +1,38 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
 import { Search, IndianRupee, FileText } from "lucide-react";
-import { mockInvoices } from "../data/mockDb";
+import { api } from "../lib/api";
+import { Invoice } from "../types";
 
 export function Fees() {
   const [search, setSearch] = useState("");
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filteredInvoices = mockInvoices.filter(inv => 
-    inv.studentName.toLowerCase().includes(search.toLowerCase()) || 
-    inv.id.toLowerCase().includes(search.toLowerCase())
+  useEffect(() => {
+    const loadInvoices = async () => {
+      const data = await api.getInvoices();
+      setInvoices(data as Invoice[]);
+      setLoading(false);
+    };
+    loadInvoices();
+  }, []);
+
+  const filteredInvoices = (invoices || []).filter(inv => 
+    (inv.studentName?.toLowerCase() || "").includes(search.toLowerCase()) || 
+    (inv.id?.toLowerCase() || "").includes(search.toLowerCase())
   );
+
+  if (loading) {
+    return <div className="flex items-center justify-center h-64">Loading fees...</div>;
+  }
+
+  const totalCollected = invoices.filter(i => i.status === 'Paid').reduce((acc, curr) => acc + curr.amount, 0);
+  const totalDue = invoices.filter(i => i.status !== 'Paid').reduce((acc, curr) => acc + curr.amount, 0);
 
   return (
     <div className="space-y-6">
@@ -23,28 +42,28 @@ export function Fees() {
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between space-y-0 pb-2">
-              <h3 className="text-sm font-medium tracking-tight text-muted-foreground">Total Collected (YTD)</h3>
+              <h3 className="text-sm font-medium tracking-tight text-muted-foreground">Total Collected</h3>
               <IndianRupee className="h-4 w-4 text-emerald-500" />
             </div>
-            <div className="text-3xl font-bold">â¹1,240,000</div>
+            <div className="text-3xl font-bold">₹{totalCollected.toLocaleString()}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between space-y-0 pb-2">
-              <h3 className="text-sm font-medium tracking-tight text-muted-foreground">Total Due</h3>
+              <h3 className="text-sm font-medium tracking-tight text-muted-foreground">Total Pending</h3>
               <IndianRupee className="h-4 w-4 text-primary" />
             </div>
-            <div className="text-3xl font-bold">â¹450,000</div>
+            <div className="text-3xl font-bold">₹{totalDue.toLocaleString()}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between space-y-0 pb-2">
-              <h3 className="text-sm font-medium tracking-tight text-muted-foreground">Total Overdue</h3>
-              <IndianRupee className="h-4 w-4 text-destructive" />
+              <h3 className="text-sm font-medium tracking-tight text-muted-foreground">Invoices</h3>
+              <FileText className="h-4 w-4 text-primary" />
             </div>
-            <div className="text-3xl font-bold text-destructive">â¹85,000</div>
+            <div className="text-3xl font-bold">{invoices.length}</div>
           </CardContent>
         </Card>
       </div>
@@ -76,30 +95,38 @@ export function Fees() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredInvoices.map((inv) => (
-                <TableRow key={inv.id}>
-                  <TableCell className="font-medium text-muted-foreground">{inv.id}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-col">
-                      <span className="font-medium text-foreground">{inv.studentName}</span>
-                      <span className="text-xs text-muted-foreground">{inv.studentId}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>{inv.category}</TableCell>
-                  <TableCell>â¹{inv.amount.toLocaleString()}</TableCell>
-                  <TableCell>{inv.dueDate}</TableCell>
-                  <TableCell>
-                    <Badge variant={inv.status === "Paid" ? "success" : inv.status === "Partial" ? "warning" : "destructive"}>
-                      {inv.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                     <Button variant="outline" size="sm" className="h-8">
-                       <FileText className="mr-2 h-3 w-3" /> Receipt
-                     </Button>
+              {filteredInvoices.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    No invoices found.
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                filteredInvoices.map((inv) => (
+                  <TableRow key={inv.id}>
+                    <TableCell className="font-medium text-muted-foreground">{inv.id}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-medium text-foreground">{inv.studentName}</span>
+                        <span className="text-xs text-muted-foreground">{inv.studentId}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>{inv.category}</TableCell>
+                    <TableCell>₹{inv.amount.toLocaleString()}</TableCell>
+                    <TableCell>{inv.dueDate}</TableCell>
+                    <TableCell>
+                      <Badge variant={inv.status === "Paid" ? "success" : inv.status === "Partial" ? "warning" : "destructive"}>
+                        {inv.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                       <Button variant="outline" size="sm" className="h-8">
+                         <FileText className="mr-2 h-3 w-3" /> Receipt
+                       </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>
