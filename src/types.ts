@@ -121,6 +121,7 @@ export interface AttendanceRecord {
   subject?: string;
   topics?: string;
   marked_by?: string;
+  created_at?: string;
   sessions?: SessionAttendance[];
 }
 

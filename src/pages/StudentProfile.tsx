@@ -1104,7 +1104,24 @@ export function StudentProfile() {
                           return (
                             <button 
                               key={idx} 
-                              onClick={() => dayRecord && setSelectedDay(dayRecord)}
+                              onClick={() => {
+                                const dayRecords = attendance.filter(a => a.date === dateStr);
+                                if (dayRecords.length > 0) {
+                                  setSelectedDay({
+                                    ...dayRecords[0],
+                                    sessions: dayRecords.map(r => ({
+                                      subject: r.subject || 'General',
+                                      status: r.status as any,
+                                      time: r.created_at ? new Date(r.created_at).toLocaleTimeString([], { 
+                                        hour: '2-digit', 
+                                        minute: '2-digit', 
+                                        second: '2-digit',
+                                        hour12: true 
+                                      }) : 'N/A'
+                                    }))
+                                  });
+                                }
+                              }}
                               className={`aspect-square rounded-lg flex flex-col items-center justify-center border border-muted/20 relative group transition-all hover:scale-110 active:scale-95
                                 ${status === 'Present' ? 'bg-emerald-500/10 border-emerald-500/30' : 
                                   status === 'Absent' ? 'bg-destructive/10 border-destructive/30' : 
@@ -1735,7 +1752,9 @@ export function StudentProfile() {
                      </div>
                      <div>
                         <p className="text-sm font-bold">{session.subject}</p>
-                        <p className="text-[10px] text-muted-foreground uppercase font-mono tracking-tighter">{session.time}</p>
+                        <p className="text-[10px] text-primary/70 font-mono tracking-tighter bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10 inline-block mt-1 uppercase">
+                           {session.time}
+                        </p>
                      </div>
                   </div>
                   <Badge variant={session.status === 'Present' ? 'success' : 'destructive'} className="text-[9px] h-5 py-0">
