@@ -12,7 +12,7 @@ const expenseData = [
   { name: "Resources", value: 85000 },
   { name: "Marketing", value: 40000 },
 ];
-const COLORS = ["#06b6d4", "#a855f7", "#3b82f6", "#ef4444"];
+const COLORS = ["#e07a5f", "#f4a261", "#e9c46a", "#2a9d8f", "#264653"];
 
 export function Ledger() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -64,7 +64,7 @@ export function Ledger() {
         <Card>
           <CardContent className="p-6">
             <h3 className="text-sm font-medium tracking-tight text-muted-foreground mb-2">Total Revenue</h3>
-            <div className="text-3xl font-bold text-emerald-500">₹{totalIncome.toLocaleString()}</div>
+            <div className="text-3xl font-bold text-emerald-600">₹{totalIncome.toLocaleString()}</div>
           </CardContent>
         </Card>
         <Card>
@@ -98,8 +98,8 @@ export function Ledger() {
                     ))}
                   </Pie>
                   <Tooltip 
-                    contentStyle={{ backgroundColor: '#121214', border: 'none', borderRadius: '8px', color: '#fff' }}
-                    itemStyle={{ color: '#fff' }}
+                    contentStyle={{ backgroundColor: '#ffffff', border: 'none', borderRadius: '8px', color: '#2d2a26' }}
+                    itemStyle={{ color: '#2d2a26' }}
                     formatter={(value: number) => `₹${value.toLocaleString()}`}
                   />
                   <Legend verticalAlign="bottom" height={36}/>
@@ -133,7 +133,7 @@ export function Ledger() {
                       <TableCell className="text-muted-foreground">{txn.date}</TableCell>
                       <TableCell className="font-medium">{txn.description}</TableCell>
                       <TableCell><Badge variant="outline">{txn.category}</Badge></TableCell>
-                      <TableCell className={`text-right font-bold ${txn.type === "Income" ? "text-emerald-500" : "text-foreground"}`}>
+                      <TableCell className={`text-right font-bold ${txn.type === "Income" ? "text-emerald-600" : "text-foreground"}`}>
                         {txn.type === "Income" ? "+" : "-"}₹{txn.amount.toLocaleString()}
                       </TableCell>
                     </TableRow>

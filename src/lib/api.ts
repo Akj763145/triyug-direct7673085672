@@ -30,7 +30,7 @@ async function fetchFromSupabase(table: string, mockFallback: any[]) {
 async function insertToSupabase(table: string, payload: any) {
   if (supabase) {
     try {
-      const { data, error } = await supabase.from(table).insert([payload]).select()
+      const { data, error } = await supabase.from(table).insert([payload])
       if (error) throw error
       return { data, error: null }
     } catch (error) {
@@ -58,7 +58,25 @@ async function updateInSupabase(table: string, id: string, payload: any) {
 
 // Services
 export const api = {
-  getStudents: () => fetchFromSupabase('students', mockStudents),
+  getStudents: async () => {
+    const profiles = await fetchFromSupabase('student_profiles', []);
+    const oldStudents = await fetchFromSupabase('students', mockStudents);
+    
+    let mappedProfiles = [];
+    if (profiles && profiles.length > 0) {
+      mappedProfiles = profiles.map((p: any) => ({
+        id: p.id,
+        student_id: p.student_id,
+        name: `${p.first_name} ${p.last_name}`,
+        grade: p.grade,
+        contact: p.parent1_contact || 'N/A',
+        status: p.status === 'Active' ? 'Active' : 'Graduated', // Simple mapping
+        photo_url: p.photo_url || undefined
+      }));
+    }
+    
+    return [...mappedProfiles, ...(oldStudents || [])];
+  },
   addStudent: (student: Omit<Student, 'id'>) => {
     const defaultId = `STU-${Math.floor(Math.random() * 10000)}`
     return insertToSupabase('students', { ...student, id: defaultId })
@@ -79,6 +97,33 @@ export const api = {
   
   getActivityLogs: () => fetchFromSupabase('activity_logs', mockActivityLog),
   addActivityLog: (log: Omit<ActivityLog, 'id'>) => insertToSupabase('activity_logs', log),
+
+  addStudentProfile: (profile: any) => insertToSupabase('student_profiles', profile),
+
+  uploadFile: async (path: string, file: File) => {
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.storage
+          .from('student-documents')
+          .upload(path, file, {
+            cacheControl: '3600',
+            upsert: true
+          })
+        if (error) throw error
+        
+        // Get public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('student-documents')
+          .getPublicUrl(path)
+          
+        return { url: publicUrl, error: null }
+      } catch (error) {
+        console.error('Error uploading file:', error)
+        return { url: null, error }
+      }
+    }
+    return { url: null, error: new Error('Supabase not configured') }
+  },
 
   login: async (username: string, password: string) => {
     // 1. Try Supabase first if available

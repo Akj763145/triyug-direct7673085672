@@ -1,11 +1,18 @@
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
-import { Users, UserCog, IndianRupee, Layers } from "lucide-react";
+import { Users, UserCog, IndianRupee, Layers, QrCode, CheckCircle2, X } from "lucide-react";
 import { chartData } from "../data/mockDb";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { api } from "../lib/api";
 import { ActivityLog } from "../types";
+import { 
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger 
+} from "../components/ui/dialog";
+import { QRScanner } from "../components/QRScanner";
+import { supabase } from "../lib/supabase";
+import { Button } from "../components/ui/button";
+import { motion, AnimatePresence } from "motion/react";
 
 export function Dashboard() {
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
@@ -16,6 +23,38 @@ export function Dashboard() {
     resources: 0
   });
   const [loading, setLoading] = useState(true);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scanResult, setScanResult] = useState<string | null>(null);
+
+  const handleScanSuccess = async (decodedText: string) => {
+    if (decodedText.startsWith('ATTENDANCE_SCAN:')) {
+      const studentId = decodedText.split(':')[1];
+      const date = new Date().toISOString().split('T')[0];
+      
+      try {
+        const { error } = await supabase
+          .from('student_attendance')
+          .upsert({
+            student_id: studentId,
+            date: date,
+            status: 'Present',
+            subject: 'General',
+            marked_by: 'QR Scanner'
+          }, { onConflict: 'student_id,date,subject' });
+
+        if (error) throw error;
+        setScanResult(`Attendance marked for ID: ${studentId}`);
+        setTimeout(() => setScanResult(null), 3000);
+      } catch (err) {
+        console.error(err);
+        setScanResult('Error marking attendance');
+        setTimeout(() => setScanResult(null), 3000);
+      }
+    } else {
+      setScanResult('Invalid QR Code');
+      setTimeout(() => setScanResult(null), 3000);
+    }
+  };
 
   useEffect(() => {
     const loadDashboardData = async () => {
@@ -46,7 +85,58 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-3xl font-bold tracking-tight">Dashboard Overview</h2>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Dashboard Overview</h2>
+          <p className="text-xs text-muted-foreground">Admin control panel & front-desk monitoring</p>
+        </div>
+
+        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+          <DialogTrigger asChild>
+            <Button className="bg-primary/90 hover:bg-primary shadow-lg shadow-primary/20 gap-2 border-primary/20 border-b-4 hover:translate-y-[1px] active:border-b-0 active:translate-y-[4px] transition-all">
+              <QrCode className="h-4 w-4" />
+              Scan Attendance
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <QrCode className="h-5 w-5 text-primary" />
+                Front Desk Scanner
+              </DialogTitle>
+              <DialogDescription>
+                Point the student ID card QR code at the camera.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 flex flex-col items-center">
+               {isScannerOpen && !scanResult && (
+                 <QRScanner 
+                    onScan={handleScanSuccess} 
+                    onClose={() => setIsScannerOpen(false)} 
+                 />
+               )}
+               
+               <AnimatePresence>
+                 {scanResult && (
+                   <motion.div 
+                     initial={{ opacity: 0, y: 10 }}
+                     animate={{ opacity: 1, y: 0 }}
+                     exit={{ opacity: 0, y: -10 }}
+                     className={`mt-4 p-4 rounded-xl w-full flex items-center gap-3 border ${
+                       scanResult.includes('Error') || scanResult.includes('Invalid') 
+                         ? 'bg-destructive/10 border-destructive/20 text-destructive' 
+                         : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600'
+                     }`}
+                   >
+                     {scanResult.includes('marked') ? <CheckCircle2 className="h-5 w-5" /> : <X className="h-5 w-5" />}
+                     <span className="text-sm font-bold">{scanResult}</span>
+                   </motion.div>
+                 )}
+               </AnimatePresence>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
       
       {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -102,15 +192,15 @@ export function Dashboard() {
             {chartData && chartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                  <XAxis dataKey="month" stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#a1a1aa" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `₹${value/1000}k`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2dcd0" />
+                  <XAxis dataKey="month" stroke="#8c857b" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#8c857b" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `₹${value/1000}k`} />
                   <Tooltip 
-                    contentStyle={{ backgroundColor: '#121214', borderColor: '#27272a', color: '#fafafa' }}
-                    itemStyle={{ color: '#06b6d4' }}
+                    contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2dcd0', color: '#2d2a26' }}
+                    itemStyle={{ color: '#e07a5f' }}
                   />
-                  <Line type="monotone" dataKey="revenue" stroke="#06b6d4" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                  <Line type="monotone" dataKey="expenses" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                  <Line type="monotone" dataKey="revenue" stroke="#e07a5f" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                  <Line type="monotone" dataKey="expenses" stroke="#e63946" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (

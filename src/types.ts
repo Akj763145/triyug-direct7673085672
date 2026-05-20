@@ -1,9 +1,60 @@
 export interface Student {
   id: string;
+  student_id?: string;
   name: string;
   grade: string;
   contact: string;
   status: "Active" | "Graduated";
+  photo_url?: string;
+  
+  // Demographics
+  first_name?: string;
+  last_name?: string;
+  date_of_birth?: string;
+  gender?: string;
+  blood_group?: string;
+  nationality?: string;
+  is_international?: boolean;
+  passport_number?: string;
+  visa_status?: string;
+  mother_tongue?: string;
+  primary_language?: string;
+
+  // Parent/Guardian 1
+  parent1_name?: string;
+  parent1_relation?: string;
+  parent1_occupation?: string;
+  parent1_income?: string;
+  parent1_email?: string;
+  parent1_contact?: string;
+
+  // Parent/Guardian 2
+  parent2_name?: string;
+  parent2_relation?: string;
+  parent2_occupation?: string;
+  parent2_income?: string;
+  parent2_email?: string;
+  parent2_contact?: string;
+
+  // Address
+  address_line1?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
+
+  // Academic History
+  previous_school?: string;
+  last_grade_completed?: string;
+  reason_for_leaving?: string;
+  previous_gpa?: string;
+
+  // Medical & Emergency
+  allergies?: string;
+  medical_conditions?: string;
+  daily_medications?: string;
+  emergency_contact_name?: string;
+  emergency_contact_relation?: string;
+  emergency_contact_number?: string;
 }
 
 export interface Staff {
@@ -63,8 +114,13 @@ export interface SessionAttendance {
 }
 
 export interface AttendanceRecord {
+  id?: string;
+  student_id?: string;
   date: string;
-  status: "Present" | "Absent" | "Late" | "Holiday";
+  status: "Present" | "Absent" | "Late" | "Holiday" | "Excused";
+  subject?: string;
+  topics?: string;
+  marked_by?: string;
   sessions?: SessionAttendance[];
 }
 

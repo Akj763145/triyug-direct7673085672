@@ -5,36 +5,23 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
-import { Search, Plus, Edit, Eye, ChevronLeft, ChevronRight, UserPlus, Download, Upload, MoreHorizontal, GraduationCap, ArrowUpCircle, FileText, Calendar } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "../components/ui/dialog";
+import { Search, Plus, Edit, Eye, ChevronLeft, ChevronRight, UserPlus, Download, Upload, ArrowUpCircle, GraduationCap } from "lucide-react";
 import { Skeleton } from "../components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
 import { Checkbox } from "../components/ui/checkbox";
 import { api } from "../lib/api";
+import { supabase } from "../lib/supabase";
 import { Student } from "../types";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
 import Papa from "papaparse";
-
-const studentSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters"),
-  grade: z.string().min(1, "Grade is required"),
-  contact: z.string().regex(/^\d{10}$/, "Contact must be exactly 10 digits"),
-  notes: z.string().optional(),
-});
-
-type StudentFormValues = z.infer<typeof studentSchema>;
+import { AddStudentWizard } from "../components/AddStudentWizard";
 
 export function Students() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
   
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
-  const [viewingStudent, setViewingStudent] = useState<Student | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filters
@@ -44,21 +31,6 @@ export function Students() {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
-
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors },
-  } = useForm<StudentFormValues>({
-    resolver: zodResolver(studentSchema),
-    defaultValues: {
-      name: "",
-      grade: "",
-      contact: "",
-      notes: "",
-    },
-  });
 
   const loadStudents = async () => {
     setLoading(true);
@@ -71,33 +43,10 @@ export function Students() {
     loadStudents();
   }, []);
 
-  const onSave = async (data: StudentFormValues) => {
-    // Add student to DB
-    const { error } = await api.addStudent({
-      name: data.name,
-      grade: data.grade,
-      contact: data.contact,
-      status: "Active"
-    });
-    
-    await api.addActivityLog({
-      action: `Added new student: ${data.name}`,
-      module: "Students",
-      time: new Date().toLocaleTimeString(),
-      user: "Admin"
-    });
-
-    if (!error) {
-      setIsDialogOpen(false);
-      reset();
-      loadStudents();
-    }
-  };
-
   // Advanced Filtering Logic
   const filteredStudents = students.filter(s => {
     const matchesSearch = s.name.toLowerCase().includes(search.toLowerCase()) || 
-                         s.id.toLowerCase().includes(search.toLowerCase());
+                         (s.student_id || s.id).toLowerCase().includes(search.toLowerCase());
     const matchesGrade = gradeFilter === "All" || s.grade === gradeFilter;
     const matchesStatus = statusFilter === "All" || s.status === statusFilter;
     
@@ -137,13 +86,52 @@ export function Students() {
   };
 
   const handleBatchPromote = () => {
-    alert(`Promoted ${selectedStudents.length} students to next grade.`);
+    alert(`Promotion logic for ${selectedStudents.length} students would increment their grade in a production environment.`);
     setSelectedStudents([]);
   };
 
-  const handleBatchGraduate = () => {
-    alert(`Marked ${selectedStudents.length} students as graduated.`);
-    setSelectedStudents([]);
+  const handleBatchGraduate = async () => {
+    if (!selectedStudents.length || !supabase) return;
+    
+    setLoading(true);
+    try {
+      const { error: profileError } = await supabase
+        .from('student_profiles')
+        .update({ status: 'Graduated' })
+        .in('id', selectedStudents);
+      
+      const { error: studentError } = await supabase
+        .from('students')
+        .update({ status: 'Graduated' })
+        .in('id', selectedStudents);
+
+      if (profileError && studentError) throw profileError;
+      
+      await loadStudents();
+      setSelectedStudents([]);
+    } catch (err) {
+      console.error("Batch graduation failed:", err);
+      alert("Failed to update status for some students.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleStudentStatus = async (student: Student) => {
+    if (!supabase) return;
+    const newStatus = student.status === 'Active' ? 'Graduated' : 'Active';
+    
+    try {
+      // Parallel update attempt for both potential tables
+      await Promise.all([
+        supabase.from('student_profiles').update({ status: newStatus }).eq('id', student.id),
+        supabase.from('students').update({ status: newStatus }).eq('id', student.id)
+      ]);
+      
+      setStudents(prev => prev.map(s => s.id === student.id ? { ...s, status: newStatus } : s));
+    } catch (err) {
+      console.error("Error toggling status:", err);
+    }
   };
 
   const handleExportCSV = () => {
@@ -206,47 +194,18 @@ export function Students() {
             <Download className="mr-2 h-4 w-4" /> Export CSV
           </Button>
 
-          <Dialog open={isDialogOpen} onOpenChange={(open) => {
-            setIsDialogOpen(open);
-            if (!open) reset();
-          }}>
-            <DialogTrigger asChild>
-              <Button className="shadow-lg shadow-primary/20">
-                <Plus className="mr-2 h-4 w-4" /> Add New Student
-              </Button>
-            </DialogTrigger>
-          <DialogContent className="sm:max-w-[450px]">
-            <DialogHeader>
-              <DialogTitle>Enroll New Student</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit(onSave)} className="space-y-4 py-4">
-              <div className="grid gap-2">
-                <label className="text-sm font-medium">Full Name</label>
-                <Input {...register("name")} placeholder="e.g. Rahul Kumar" className={errors.name ? "border-destructive" : ""} />
-                {errors.name && <span className="text-xs text-destructive">{errors.name.message}</span>}
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <label className="text-sm font-medium">Grade / Class</label>
-                  <Input {...register("grade")} placeholder="e.g. 10th" className={errors.grade ? "border-destructive" : ""} />
-                  {errors.grade && <span className="text-xs text-destructive">{errors.grade.message}</span>}
-                </div>
-                <div className="grid gap-2">
-                  <label className="text-sm font-medium">Contact Number</label>
-                  <Input {...register("contact")} placeholder="10 Digits" className={errors.contact ? "border-destructive" : ""} />
-                  {errors.contact && <span className="text-xs text-destructive">{errors.contact.message}</span>}
-                </div>
-              </div>
-              <div className="grid gap-2">
-                <label className="text-sm font-medium">Internal Notes</label>
-                <Input {...register("notes")} placeholder="Any specific details..." />
-              </div>
-              <DialogFooter className="pt-4">
-                <Button type="submit" className="w-full">Create Enrollment Record</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+          <Button className="shadow-lg shadow-primary/20" onClick={() => setIsWizardOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" /> Add New Student
+          </Button>
+          
+          <AddStudentWizard 
+            open={isWizardOpen} 
+            onOpenChange={setIsWizardOpen} 
+            onSuccess={() => {
+              setIsWizardOpen(false);
+              loadStudents();
+            }} 
+          />
         </div>
       </div>
 
@@ -316,7 +275,7 @@ export function Students() {
                     onCheckedChange={handleSelectAll}
                   />
                 </TableHead>
-                <TableHead className="w-[120px]">UID</TableHead>
+                <TableHead className="w-[120px]">Student ID</TableHead>
                 <TableHead>Full Name</TableHead>
                 <TableHead>Grade</TableHead>
                 <TableHead>Contact</TableHead>
@@ -349,8 +308,15 @@ export function Students() {
                         onCheckedChange={(c) => handleSelectStudent(student.id, c as boolean)}
                       />
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">{student.id}</TableCell>
-                    <TableCell className="font-medium">{student.name}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{student.student_id || student.id.slice(0, 8)}</TableCell>
+                    <TableCell className="font-medium">
+                      <button 
+                        onClick={() => navigate(`/students/${student.id}`)}
+                        className="hover:text-primary transition-colors hover:underline cursor-pointer text-left"
+                      >
+                        {student.name}
+                      </button>
+                    </TableCell>
                     <TableCell>{student.grade}</TableCell>
                     <TableCell className="text-sm font-mono">{student.contact}</TableCell>
                     <TableCell>
@@ -362,6 +328,15 @@ export function Students() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className={`h-8 w-8 ${student.status === 'Active' ? 'text-emerald-500' : 'text-blue-500'}`}
+                        onClick={() => toggleStudentStatus(student)}
+                        title={student.status === 'Active' ? "Mark as Graduated" : "Re-activate"}
+                      >
+                        {student.status === 'Active' ? <GraduationCap className="h-4 w-4" /> : <ArrowUpCircle className="h-4 w-4" />}
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(`/students/${student.id}`)}>
                         <Eye className="h-4 w-4" />
                       </Button>
