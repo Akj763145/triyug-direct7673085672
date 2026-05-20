@@ -14,6 +14,29 @@ import { supabase } from "../lib/supabase";
 import { Button } from "../components/ui/button";
 import { motion, AnimatePresence } from "motion/react";
 
+const playBeep = () => {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1046.50, ctx.currentTime); // C6 Note
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.15);
+    
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.15);
+  } catch (e) {
+    console.error("Audio error", e);
+  }
+};
+
 export function Dashboard() {
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [stats, setStats] = useState({
@@ -43,6 +66,7 @@ export function Dashboard() {
           }, { onConflict: 'student_id,date,subject' });
 
         if (error) throw error;
+        playBeep();
         setScanResult(`Attendance marked for ID: ${studentId}`);
         setTimeout(() => setScanResult(null), 3000);
       } catch (err) {

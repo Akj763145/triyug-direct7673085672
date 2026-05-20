@@ -181,7 +181,8 @@ export function StudentProfile() {
           date: date,
           status: status,
           subject: subject || 'General',
-          marked_by: 'Admin'
+          marked_by: 'Admin',
+          created_at: new Date().toISOString()
         }, { onConflict: 'student_id,date,subject' });
 
       if (error) throw error;
