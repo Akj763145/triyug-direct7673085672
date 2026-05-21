@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Upload, FileText, Download, Trash2, Calendar, IndianRupee, Save, X, File, 
-  BarChart3, Clock, MessageSquare, AlertCircle, CheckCircle2, User, Award, Eye,
+  BarChart3, Clock, MessageSquare, AlertCircle, CheckCircle2, User, Award, Eye, ExternalLink,
   MapPin, Phone, Mail, QrCode, Send, Wallet, Receipt, History, Smartphone, MoreHorizontal,
   Printer, Share2, Plus, CreditCard, Camera, GraduationCap, UserCheck, ChevronLeft, ChevronRight, ChevronDown, ChevronUp
 } from 'lucide-react';
@@ -100,6 +100,8 @@ export function StudentProfile() {
   const [adjustmentAmount, setAdjustmentAmount] = useState<string>('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [showInstallments, setShowInstallments] = useState(false);
+  const [receiptData, setReceiptData] = useState<any>(null);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
 
   const handlePaymentSubmit = () => {
     if (!student || parseFloat(paymentAmount) <= 0) return;
@@ -130,9 +132,28 @@ export function StudentProfile() {
     }, 800);
   };
 
+  const viewReceiptFromTxn = (txn: any) => {
+    const inv = invoices.find(i => i.id === txn.invoiceId || i.id === txn.invoice_id);
+    
+    setReceiptData({
+      transaction_id: txn.id,
+      date: txn.date,
+      paid_amount: txn.amount,
+      payment_method: txn.paymentMethod || txn.payment_method || 'SYSTEM',
+      reference_id: txn.reference_id || txn.referenceId || txn.id,
+      installment_title: inv?.title || 'Fee Payment',
+      new_status: inv?.computedStatus || inv?.status || 'Success',
+      amount_due: inv?.amountDue || 0,
+    });
+    setShowReceiptModal(true);
+  };
+
   // Document management states
   const [activeDocCategory, setActiveDocCategory] = useState<'All' | 'Academic' | 'Legal' | 'ID Proof'>('All');
   const [viewingDoc, setViewingDoc] = useState<{ name: string; url: string; type: string } | null>(null);
+  const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
+  const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
+  const [uploadCategory, setUploadCategory] = useState<'Academic' | 'Legal' | 'ID Proof'>('Academic');
   const [currentViewDate, setCurrentViewDate] = useState(new Date());
 
   const fetchAttendance = useCallback(async () => {
@@ -346,11 +367,22 @@ export function StudentProfile() {
       // Fetch documents
       const { data: docData, error: docError } = await supabase
         .storage
-        .from('student_documents')
+        .from('student-documents')
         .list(id + '/', { limit: 100, offset: 0 });
         
       if (!docError && docData) {
-        setDocuments(docData);
+        // We need to generate public URLs for each file
+        const docsWithUrls = docData.map(doc => {
+          const { data: { publicUrl } } = supabase.storage
+            .from('student-documents')
+            .getPublicUrl(`${id}/${doc.name}`);
+          
+          return {
+            ...doc,
+            url: publicUrl
+          };
+        });
+        setDocuments(docsWithUrls);
       }
     } catch (err) {
       console.error("Error fetching student profile:", err);
@@ -578,26 +610,80 @@ export function StudentProfile() {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDownloadDocument = async (url: string, fileName: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error("Download failed:", error);
+      // Fallback to opening in new tab if blob download fails
+      window.open(url, '_blank');
+    }
+  };
+
+  const handleDeleteDocument = async (docName: string) => {
+    if (!id || !supabase) return;
+    if (!confirm(`Are you sure you want to delete "${docName}"?`)) return;
+
+    try {
+      const { error } = await supabase.storage
+        .from('student-documents')
+        .remove([`${id}/${docName}`]);
+
+      if (error) {
+        console.error("Error deleting document:", error);
+        alert(`Failed to delete: ${error.message}`);
+      } else {
+        fetchStudentData();
+      }
+    } catch (err) {
+      console.error("Delete operation failed:", err);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !id || !supabase) return;
+    
+    setPendingUploadFile(file);
+    // If a category is already selected in the UI (and it's not 'All'), suggest that category
+    if (activeDocCategory !== 'All') {
+      setUploadCategory(activeDocCategory);
+    } else {
+      setUploadCategory('Academic');
+    }
+    setIsUploadDialogOpen(true);
+  };
+
+  const confirmUpload = async () => {
+    if (!pendingUploadFile || !id || !supabase) return;
 
     setUploading(true);
+    setIsUploadDialogOpen(false);
+    
     try {
-      const fileExt = file.name.split('.').pop();
-      // Use fallback if 'All' is selected as active filter
-      const categoryToUse = activeDocCategory === 'All' ? 'Academic' : activeDocCategory;
-      // We encode the category in the filename for easy retrieval in mock/real environments
+      const file = pendingUploadFile;
+      const categoryToUse = uploadCategory;
+      
+      // We encode the category in the filename for easy retrieval
       const fileName = `${categoryToUse}_${Date.now()}_${file.name}`;
       const filePath = `${id}/${fileName}`;
       
       let { error } = await supabase.storage
-          .from('student_documents')
+          .from('student-documents')
           .upload(filePath, file);
 
       if (error) {
         console.error("Storage upload failed:", error);
-        alert(`Failed to upload document: ${error.message}. Please verify that the 'student_documents' storage bucket exists.`);
+        alert(`Failed to upload document: ${error.message}. Please verify that the 'student-documents' storage bucket exists.`);
       } else {
         fetchStudentData();
       }
@@ -605,6 +691,7 @@ export function StudentProfile() {
       console.error("Error uploading file:", err);
     } finally {
       setUploading(false);
+      setPendingUploadFile(null);
     }
   };
 
@@ -1564,9 +1651,20 @@ export function StudentProfile() {
                                 <div className="text-[8px] text-muted-foreground uppercase font-bold tracking-tighter">{txn.paymentMethod || 'SYSTEM'}</div>
                               </TableCell>
                               <TableCell className="text-right px-4 py-4">
-                                <Badge variant={txn.status === "Success" ? "success" : "destructive"} className="text-[9px] h-5 px-2 font-black uppercase tracking-tighter border-none shadow-sm">
-                                  {txn.status}
-                                </Badge>
+                                <div className="flex items-center justify-end gap-2">
+                                  <Badge variant={txn.status === "Success" ? "success" : "destructive"} className="text-[9px] h-5 px-2 font-black uppercase tracking-tighter border-none shadow-sm">
+                                    {txn.status}
+                                  </Badge>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-6 w-6 rounded-md hover:bg-emerald-500/10 hover:text-emerald-600 transition-all opacity-0 group-hover/row:opacity-100"
+                                    onClick={() => viewReceiptFromTxn(txn)}
+                                    title="View Receipt"
+                                  >
+                                    <Receipt className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
                               </TableCell>
                             </TableRow>
                           ))
@@ -1712,7 +1810,7 @@ export function StudentProfile() {
                                      variant="ghost" 
                                      size="icon" 
                                      className="h-8 w-8 rounded-lg hover:bg-muted hover:text-foreground" 
-                                     onClick={() => doc.url && window.open(doc.url, '_blank')}
+                                     onClick={() => doc.url && handleDownloadDocument(doc.url, originalName)}
                                    >
                                       <Download className="h-4 w-4" />
                                    </Button>
@@ -1720,6 +1818,7 @@ export function StudentProfile() {
                                      variant="ghost" 
                                      size="icon" 
                                      className="h-8 w-8 rounded-lg hover:bg-destructive/10 hover:text-destructive"
+                                     onClick={() => handleDeleteDocument(doc.name)}
                                    >
                                       <Trash2 className="h-4 w-4" />
                                    </Button>
@@ -1870,6 +1969,91 @@ export function StudentProfile() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Automatic Payment Receipt */}
+      <Dialog open={showReceiptModal} onOpenChange={setShowReceiptModal}>
+        <DialogContent className="sm:max-w-md bg-background border-border p-0 overflow-hidden shadow-2xl">
+          <div className="relative p-6 pt-12 text-center overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-2 bg-emerald-500" />
+            <div className="absolute -top-12 -right-12 h-32 w-32 bg-emerald-500/10 rounded-full blur-3xl" />
+            <div className="absolute -bottom-12 -left-12 h-32 w-32 bg-primary/10 rounded-full blur-3xl" />
+            
+            <div className="mb-4 inline-flex items-center justify-center h-16 w-16 rounded-full bg-emerald-500/10 text-emerald-600 border-4 border-background shadow-sm">
+              <CheckCircle2 className="h-8 w-8" />
+            </div>
+            
+            <h2 className="text-2xl font-black text-foreground tracking-tight mb-1">Receipt Generated</h2>
+            <p className="text-[10px] uppercase font-bold tracking-[0.2em] text-muted-foreground mb-6">Payment Successful • Verified</p>
+            
+            <div className="bg-muted/30 border border-muted/20 rounded-2xl p-5 text-left space-y-4 text-foreground">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-[9px] uppercase font-black tracking-widest text-muted-foreground mb-0.5">Transaction ID</p>
+                  <p className="text-xs font-mono font-bold">{receiptData?.transaction_id}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[9px] uppercase font-black tracking-widest text-muted-foreground mb-0.5">Date</p>
+                  <p className="text-[10px] font-bold">{receiptData?.date}</p>
+                </div>
+              </div>
+              
+              <div className="pt-2 border-t border-muted/30">
+                <p className="text-[9px] uppercase font-black tracking-widest text-muted-foreground mb-1.5 font-sans">Installment Details</p>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-bold">{receiptData?.installment_title}</span>
+                  <span className="text-xs font-black text-emerald-600 bg-emerald-500/5 px-2 py-1 rounded">₹{receiptData?.paid_amount?.toLocaleString() || 0}</span>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center py-2 border-y border-muted/30">
+                <div>
+                  <p className="text-[9px] uppercase font-black tracking-widest text-muted-foreground mb-0.5">Method</p>
+                  <p className="text-[10px] font-bold">{receiptData?.payment_method}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[9px] uppercase font-black tracking-widest text-muted-foreground mb-0.5 font-sans">Ref ID</p>
+                  <p className="text-[9px] font-mono italic">{receiptData?.reference_id}</p>
+                </div>
+              </div>
+
+              <div className="pt-1 flex justify-between items-end">
+                <div>
+                    <div className={`text-[8px] uppercase font-black px-1.5 py-0.5 rounded inline-block ${receiptData?.new_status === 'Paid' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-yellow-500/10 text-yellow-600'}`}>
+                        Final Status: {receiptData?.new_status}
+                    </div>
+                </div>
+                {receiptData?.amount_due > 0 && (
+                    <div className="text-right">
+                        <p className="text-[9px] uppercase font-black tracking-widest text-red-500/60 mb-0.5">Remaining Due</p>
+                        <p className="text-xs font-black text-red-500 font-mono">₹{receiptData?.amount_due?.toLocaleString()}</p>
+                    </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-8 flex gap-3">
+              <Button 
+                onClick={() => setShowReceiptModal(false)}
+                className="flex-1 h-12 rounded-xl bg-foreground text-background font-black uppercase tracking-widest text-[10px] hover:scale-[1.02] transition-transform"
+              >
+                Close Receipt
+              </Button>
+              <Button 
+                variant="outline"
+                onClick={() => window.print()}
+                className="h-12 w-12 rounded-xl border-muted/20 text-muted-foreground hover:bg-muted/10"
+              >
+                <Printer className="h-4 w-4 text-foreground" />
+              </Button>
+            </div>
+            
+            <p className="mt-6 text-[8px] text-muted-foreground uppercase font-black tracking-[0.3em] opacity-40 italic">
+              Powered by Triyuga Ledger Systems • Digital Authentic Signature
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
 
       {/* Payment Slide-out Drawer */}
       <AnimatePresence>
@@ -2036,6 +2220,25 @@ export function StudentProfile() {
                                    // Successfully processed securely, refetch data
                                    await fetchStudentData(true);
                                    setIsPaymentDrawerOpen(false);
+                                   
+                                   // Show Receipt automatically
+                                   if (data) {
+                                     setReceiptData({
+                                       ...data,
+                                       student_name: student?.name,
+                                       installment_title: invoices.find(inv => inv.id === selectedInvoiceId)?.title,
+                                       payment_method: paymentMethod,
+                                       reference_id: paymentRefId || `MAN-${Date.now()}`,
+                                       date: new Date().toLocaleDateString('en-IN', {
+                                         year: 'numeric',
+                                         month: 'long',
+                                         day: 'numeric'
+                                       }),
+                                       paid_amount: amount
+                                     });
+                                     setShowReceiptModal(true);
+                                   }
+
                                    setPaymentAmount('');
                                    setPaymentRefId('');
                                    setAdjustmentAmount('');
@@ -2060,35 +2263,10 @@ export function StudentProfile() {
                      </div>
                   </div>
 
-                  {/* EMI Calculator Shell */}
-                  <Card className="bg-muted/30 border-dashed border-border">
-                     <CardHeader className="pb-2">
-                        <CardTitle className="text-xs uppercase tracking-widest text-muted-foreground">Split into EMI</CardTitle>
-                     </CardHeader>
-                     <CardContent className="space-y-4">
-                        <div className="flex justify-between items-center text-[10px] font-bold">
-                           <span>3 Months</span>
-                           <span>₹5,000 / mo</span>
-                        </div>
-                        <div className="w-full bg-muted/80 rounded-full h-1">
-                           <div className="bg-primary h-1 rounded-full w-1/3"></div>
-                        </div>
-                        <p className="text-[9px] text-muted-foreground italic text-center">Enable 0% Interest EMI for regular students.</p>
-                     </CardContent>
-                  </Card>
+                  {/* Payment processing is handled by the main Confirm Payment button above */}
                </div>
 
-               <div className="p-6 border-t border-border bg-card/80 backdrop-blur-md">
-                  <Button 
-                    type="button"
-                    onClick={() => {
-                        alert("Please use the 'Confirm Payment' button above to process transactions.");
-                    }}
-                    className="w-full h-14 bg-emerald-500 hover:bg-emerald-600 text-black font-black uppercase tracking-widest text-sm shadow-[0_10px_20px_rgba(16,185,129,0.3)] group">
-                     Confirm & Generate Receipt
-                     <Receipt className="ml-2 h-4 w-4 group-hover:rotate-12 transition-transform" />
-                  </Button>
-               </div>
+
             </motion.div>
           </>
         )}
@@ -2104,13 +2282,23 @@ export function StudentProfile() {
             </div>
           </DialogHeader>
           <div className="flex-1 bg-card relative">
-             {viewingDoc?.type === 'application/pdf' ? (
-                <iframe 
-                  src={viewingDoc.url} 
-                  className="w-full h-full border-none"
-                  title={viewingDoc.name}
-                />
-             ) : (
+              {viewingDoc?.type === 'application/pdf' ? (
+                <div className="w-full h-full flex flex-col">
+                  <iframe 
+                    src={`${viewingDoc.url}#toolbar=1&view=FitH`}
+                    className="w-full flex-1 border-none bg-muted/10"
+                    title={viewingDoc.name}
+                  >
+                    <p className="p-10 text-center">Your browser does not support iframes. <a href={viewingDoc.url} target="_blank" className="text-primary underline">Click here to view PDF</a></p>
+                  </iframe>
+                  <div className="p-2 text-center text-[9px] text-muted-foreground bg-muted/20 flex justify-center items-center gap-4">
+                    <span>PDF Viewer acting up?</span>
+                    <button onClick={() => viewingDoc?.url && window.open(viewingDoc.url, '_blank')} className="underline hover:text-primary transition-colors flex items-center font-bold">
+                      <ExternalLink className="h-3 w-3 mr-1" /> Open in New Tab
+                    </button>
+                  </div>
+                </div>
+              ) : (
                 <div className="w-full h-full flex items-center justify-center p-4">
                    <img 
                      src={viewingDoc?.url} 
@@ -2125,12 +2313,82 @@ export function StudentProfile() {
              <div className="absolute inset-0 pointer-events-none border-[20px] border-black/5"></div>
           </div>
           <div className="p-3 border-t border-border flex justify-end gap-2 bg-background">
-             <Button variant="outline" size="sm" onClick={() => viewingDoc?.url && window.open(viewingDoc.url, '_blank')} className="text-[10px] uppercase font-black tracking-widest h-8">
-                <Download className="mr-2 h-3 w-3" /> External Open
+             <Button variant="outline" size="sm" onClick={() => viewingDoc?.url && handleDownloadDocument(viewingDoc.url, viewingDoc.name)} className="text-[10px] uppercase font-black tracking-widest h-8">
+                <Download className="mr-2 h-3 w-3" /> Download
              </Button>
              <Button variant="default" size="sm" onClick={() => setViewingDoc(null)} className="text-[10px] uppercase font-black tracking-widest h-8">
                 Close Viewer
              </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Upload Category Selection Dialog */}
+      <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
+        <DialogContent className="max-w-md w-[90vw] p-0 overflow-hidden bg-background border-border">
+          <DialogHeader className="p-6 border-b border-border bg-muted/30">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Upload className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <DialogTitle className="text-sm uppercase tracking-[0.2em] font-black">Upload Document</DialogTitle>
+                <DialogDescription className="text-[10px] text-muted-foreground uppercase font-bold">Select Category for {pendingUploadFile?.name}</DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          
+          <div className="p-6 space-y-4">
+            <div className="grid grid-cols-1 gap-3">
+              {['Academic', 'Legal', 'ID Proof'].map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setUploadCategory(cat as any)}
+                  className={`flex items-center justify-between p-4 rounded-xl border-2 transition-all group ${
+                    uploadCategory === cat 
+                      ? 'border-primary bg-primary/5 shadow-md' 
+                      : 'border-border bg-card hover:border-muted-foreground/30'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                      uploadCategory === cat ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                    }`}>
+                      <FileText className="h-4 w-4" />
+                    </div>
+                    <span className={`text-xs font-black uppercase tracking-widest ${
+                      uploadCategory === cat ? 'text-foreground' : 'text-muted-foreground'
+                    }`}>{cat}</span>
+                  </div>
+                  {uploadCategory === cat && (
+                    <CheckCircle2 className="h-5 w-5 text-primary animate-in zoom-in" />
+                  )}
+                </button>
+              ))}
+            </div>
+            
+            <p className="text-[10px] text-muted-foreground italic bg-muted/30 p-3 rounded-lg border border-dashed border-border text-center">
+              Categorizing documents ensures they appear in the correct tabs and are easily searchable.
+            </p>
+          </div>
+          
+          <div className="p-6 border-t border-border flex gap-3 bg-muted/10">
+            <Button 
+              variant="outline" 
+              className="flex-1 uppercase font-black tracking-widest text-[10px] h-11"
+              onClick={() => {
+                setIsUploadDialogOpen(false);
+                setPendingUploadFile(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button 
+              className="flex-1 uppercase font-black tracking-widest text-[10px] h-11 shadow-lg shadow-primary/20"
+              onClick={confirmUpload}
+            >
+              Start Upload
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
