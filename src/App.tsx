@@ -12,6 +12,7 @@ import { StudentProfile } from "./pages/StudentProfile";
 import { Staff } from "./pages/Staff";
 import { Fees } from "./pages/Fees";
 import { Ledger } from "./pages/Ledger";
+import Batches from "./pages/Batches";
 import { Resources } from "./pages/Resources";
 import { Login } from "./pages/Login";
 
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="/staff" element={<Staff />} />
           <Route path="/fees" element={<Fees />} />
           <Route path="/ledger" element={<Ledger />} />
+          <Route path="/batches" element={<Batches />} />
           <Route path="/resources" element={<Resources />} />
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />

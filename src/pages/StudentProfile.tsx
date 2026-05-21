@@ -4,7 +4,7 @@ import {
   ArrowLeft, Upload, FileText, Download, Trash2, Calendar, IndianRupee, Save, X, File, 
   BarChart3, Clock, MessageSquare, AlertCircle, CheckCircle2, User, Award, Eye,
   MapPin, Phone, Mail, QrCode, Send, Wallet, Receipt, History, Smartphone, MoreHorizontal,
-  Printer, Share2, Plus, CreditCard, Camera, GraduationCap, UserCheck, ChevronLeft, ChevronRight
+  Printer, Share2, Plus, CreditCard, Camera, GraduationCap, UserCheck, ChevronLeft, ChevronRight, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -18,7 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Skeleton } from '../components/ui/skeleton';
 import { supabase } from '../lib/supabase';
 import { 
-  Student, Invoice, AttendanceRecord, 
+  Student, LedgerInvoice, LedgerTransaction, AttendanceRecord, 
   TeacherRemark, StudentAssignment 
 } from '../types';
 import { 
@@ -75,7 +75,8 @@ export function StudentProfile() {
 
   const [loading, setLoading] = useState(true);
   const [student, setStudent] = useState<Student | null>(null);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoices, setInvoices] = useState<LedgerInvoice[]>([]);
+  const [transactions, setTransactions] = useState<LedgerTransaction[]>([]);
   const [documents, setDocuments] = useState<any[]>([]);
   
   // New Feature States
@@ -92,6 +93,42 @@ export function StudentProfile() {
   const [selectedDay, setSelectedDay] = useState<AttendanceRecord | null>(null);
 
   const [isPaymentDrawerOpen, setIsPaymentDrawerOpen] = useState(false);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState<string>('');
+  const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'Cash' | 'Cheque' | 'Card'>('UPI');
+  const [paymentRefId, setPaymentRefId] = useState('');
+  const [adjustmentAmount, setAdjustmentAmount] = useState<string>('');
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [showInstallments, setShowInstallments] = useState(false);
+
+  const handlePaymentSubmit = () => {
+    if (!student || parseFloat(paymentAmount) <= 0) return;
+    
+    setIsProcessingPayment(true);
+    
+    // Simulate API delay
+    setTimeout(() => {
+      const newTransaction: LedgerTransaction = {
+        id: `TXN-MAN-${Math.floor(Math.random() * 10000)}`,
+        invoiceId: selectedInvoiceId || undefined,
+        studentId: student.id,
+        date: new Date().toISOString().split('T')[0],
+        amount: parseFloat(paymentAmount),
+        paymentMethod: paymentMethod as any,
+        referenceId: paymentRefId,
+        status: 'Success'
+      };
+
+      setTransactions(prev => [...prev, newTransaction]);
+      setIsProcessingPayment(false);
+      setIsPaymentDrawerOpen(false);
+      
+      // Reset form
+      setPaymentAmount('');
+      setPaymentRefId('');
+      setSelectedInvoiceId(null);
+    }, 800);
+  };
 
   // Document management states
   const [activeDocCategory, setActiveDocCategory] = useState<'All' | 'Academic' | 'Legal' | 'ID Proof'>('All');
@@ -192,17 +229,22 @@ export function StudentProfile() {
     }
   };
 
-  const fetchStudentData = useCallback(async () => {
+  const fetchStudentData = useCallback(async (silent = false) => {
     if (!id || !supabase) return;
     
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       // 1. First try to fetch from new student_profiles table
-      let { data: profileData, error: profileError } = await supabase
-        .from('student_profiles')
-        .select('*')
-        .eq('id', id)
-        .maybeSingle();
+      const isUUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(id);
+      
+      let profileQuery = supabase.from('student_profiles').select('*');
+      if (isUUID) {
+        profileQuery = profileQuery.eq('id', id);
+      } else {
+        profileQuery = profileQuery.eq('student_id', id);
+      }
+
+      let { data: profileData, error: profileError } = await profileQuery.maybeSingle();
 
       if (profileData) {
         // Safe photo URL fetch: fallback to localStorage cached version if database value is empty or invalid blob
@@ -213,7 +255,7 @@ export function StudentProfile() {
         // Map to expected Student format
         const mappedStudent: Student = {
           ...profileData,
-          id: profileData.id,
+          id: profileData.student_id || profileData.id,
           name: `${profileData.first_name} ${profileData.last_name}`,
           grade: profileData.grade,
           contact: profileData.parent1_contact || 'N/A',
@@ -224,13 +266,16 @@ export function StudentProfile() {
         setEditForm(mappedStudent);
       } else {
         // 2. Fallback to older `students` table
-        const { data: studentData, error: studentError } = await supabase
-          .from('students')
-          .select('*')
-          .eq('id', id)
-          .single();
+        let fallbackQuery = supabase.from('students').select('*');
+        if (isUUID) {
+          fallbackQuery = fallbackQuery.eq('id', id);
+        } else {
+          // If 'student_id' column exists it would be good to check, but id is text in students
+          fallbackQuery = fallbackQuery.eq('id', id);
+        }
+        const { data: studentData, error: studentError } = await fallbackQuery.maybeSingle();
           
-        if (studentError) throw studentError;
+        if (studentError || !studentData) throw studentError || new Error("Student not found");
 
         const dbPhoto = studentData.photo_url;
         const localPhoto = localStorage.getItem(`student_photo_${id}`);
@@ -248,33 +293,54 @@ export function StudentProfile() {
       const { data: invoiceData, error: invoiceError } = await supabase
         .from('invoices')
         .select('*')
-        .eq('studentId', id);
+        .eq('student_id', id);
         
       if (!invoiceError && invoiceData) {
-        setInvoices(invoiceData);
+        // Ensure proper camelCase mapping if needed by UI
+        const mappedInvoices = invoiceData.map(inv => ({
+          ...inv,
+          id: inv.id,
+          studentId: inv.student_id,
+          title: inv.category || 'Invoice',
+          totalAmount: Number(inv.amount),
+          dueDate: inv.due_date,
+          status: inv.status || 'Upcoming',
+          type: 'Primary'
+        }));
+        setInvoices(mappedInvoices);
+      } else {
+        setInvoices([]);
+      }
+
+      // Fetch transactions/payments
+      // Supabase transactions table might not have student_id, so wrap in try-catch
+      try {
+        const { data: transactionData, error: transactionError } = await supabase
+          .from('transactions')
+          .select('*')
+          .eq('student_id', id);
+
+        if (!transactionError && transactionData) {
+          // Map snake_case to camelCase for UI
+          const mappedTxns = transactionData.map((t: any) => ({
+            ...t,
+            invoiceId: t.invoice_id,
+            paymentMethod: t.payment_method || 'SYSTEM',
+            status: t.status || 'Success'
+          }));
+          setTransactions(mappedTxns);
+        } else {
+          setTransactions([]);
+        }
+      } catch (e) {
+        setTransactions([]);
       }
 
       await fetchAttendance();
 
-      setRemarks([
-        { id: '1', date: '2024-05-10', teacherName: 'Prof. Sharma', comment: 'Excellent performance in recent mock test.', category: 'Academic' },
-        { id: '2', date: '2024-05-01', teacherName: 'Admin', comment: 'Parent-teacher meeting scheduled for next week.', category: 'Behavior' }
-      ]);
-
-      setAssignments([
-        { id: '1', title: 'Algebra Worksheet #4', dueDate: '2024-05-20', status: 'Pending' },
-        { id: '2', title: 'Physics Lab Report', dueDate: '2024-05-15', status: 'Submitted' },
-        { id: '3', title: 'Chemistry Quiz', dueDate: '2024-05-10', status: 'Graded', score: 95 }
-      ]);
-
-      // MOCK INVOICES for Ledger
-      setInvoices([
-        { id: 'INV-2024-001', category: 'Tuition Fee', amount: 15000, dueDate: '2024-01-05', status: 'Paid', date: '2024-01-04', paymentMethod: 'UPI' },
-        { id: 'INV-2024-002', category: 'Tuition Fee', amount: 15000, dueDate: '2024-02-05', status: 'Paid', date: '2024-02-05', paymentMethod: 'Cash' },
-        { id: 'INV-2024-003', category: 'Admission Fee', amount: 5000, dueDate: '2024-01-10', status: 'Paid', date: '2024-01-10', paymentMethod: 'UPI' },
-        { id: 'INV-2024-004', category: 'Tuition Fee', amount: 15000, dueDate: '2024-04-05', status: 'Unpaid', date: '-', paymentMethod: '-' },
-        { id: 'INV-2024-005', category: 'Material Fee', amount: 2500, dueDate: '2024-05-01', status: 'Unpaid', date: '-', paymentMethod: '-' },
-      ] as any);
+      // Clear any local hardcoded demo data
+      setRemarks([]);
+      setAssignments([]);
 
       // Fetch documents
       const { data: docData, error: docError } = await supabase
@@ -529,16 +595,8 @@ export function StudentProfile() {
           .upload(filePath, file);
 
       if (error) {
-        console.warn("Storage upload failed (bucket might be missing). Simulating success for demo.", error);
-        // Mock update if real upload fails (for local dev)
-        const mockDoc = {
-          name: fileName,
-          created_at: new Date().toISOString(),
-          metadata: { size: file.size },
-          id: Math.random().toString(),
-          url: URL.createObjectURL(file) // temporary local URL
-        };
-        setDocuments(prev => [mockDoc, ...prev]);
+        console.error("Storage upload failed:", error);
+        alert(`Failed to upload document: ${error.message}. Please verify that the 'student_documents' storage bucket exists.`);
       } else {
         fetchStudentData();
       }
@@ -575,9 +633,38 @@ export function StudentProfile() {
     );
   }
 
-  const totalPaid = invoices.filter(i => i.status === 'Paid').reduce((acc, curr) => acc + curr.amount, 0);
-  const totalDue = invoices.filter(i => i.status !== 'Paid').reduce((acc, curr) => acc + curr.amount, 0);
-  const nextDueDate = invoices.filter(i => i.status !== 'Paid').sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0]?.dueDate || 'None';
+  const today = new Date();
+  
+  const computedInvoices = invoices.map(inv => {
+    const amountPaid = transactions
+      .filter(t => t.invoiceId === inv.id && t.status === 'Success')
+      .reduce((sum, t) => sum + t.amount, 0);
+    
+    let computedStatus = inv.status;
+    const isPastDue = new Date(inv.dueDate).getTime() < today.getTime();
+    
+    if (amountPaid >= inv.totalAmount) {
+      computedStatus = 'Paid';
+    } else if (amountPaid > 0) {
+      computedStatus = 'Partial';
+    } else if (isPastDue) {
+      computedStatus = 'Overdue';
+    } else {
+      computedStatus = 'Upcoming';
+    }
+
+    return {
+      ...inv,
+      computedStatus,
+      amountPaid,
+      amountDue: inv.totalAmount - amountPaid
+    };
+  });
+
+  const totalInvoiceAmount = computedInvoices.reduce((acc, curr) => acc + curr.totalAmount, 0);
+  const totalPaid = transactions.filter(t => t.status === 'Success').reduce((acc, curr) => acc + curr.amount, 0);
+  const totalDue = totalInvoiceAmount - totalPaid;
+  const nextDueDate = computedInvoices.filter(i => (i.computedStatus === 'Upcoming' || i.computedStatus === 'Overdue' || i.computedStatus === 'Partial')).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0]?.dueDate || 'None';
 
   const attendanceRate = (attendance.filter(a => a.status === 'Present').length / attendance.length) * 100;
   const submissionRate = (assignments.filter(a => a.status !== 'Pending').length / assignments.length) * 100;
@@ -1299,179 +1386,179 @@ export function StudentProfile() {
              </Button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            {/* Column 1: Financial Summary & Timeline */}
-            <div className="md:col-span-1 space-y-6">
-              <div className="space-y-4">
-                 <div className="flex items-center gap-2 px-1">
-                    <BarChart3 className="h-4 w-4 text-primary" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Quick Summary</span>
-                 </div>
-                 
-                 <Card className="bg-primary/5 border-primary/20 relative overflow-hidden">
-                    <CardContent className="p-4 flex items-center justify-between">
-                       <div>
-                          <p className="text-[9px] font-bold text-primary uppercase tracking-widest mb-1">Paid</p>
-                          <div className="text-xl font-black">₹{totalPaid.toLocaleString()}</div>
-                       </div>
-                       <div className="relative h-10 w-10">
-                          <svg className="absolute inset-0 w-full h-full -rotate-90">
-                             <circle cx="20" cy="20" r="18" fill="transparent" stroke="currentColor" strokeWidth="3" className="text-muted/20" />
-                             <circle cx="20" cy="20" r="18" fill="transparent" stroke="currentColor" strokeWidth="3" className="text-primary" strokeDasharray={113} strokeDashoffset={113 * (1 - totalPaid / (totalPaid + totalDue))} strokeLinecap="round" />
-                          </svg>
-                       </div>
-                    </CardContent>
-                 </Card>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* 1. TOTAL BATCH AMOUNT */}
+            <Card className="border-muted/20 bg-card/40 backdrop-blur-md relative overflow-hidden group">
+               <div className="absolute top-0 left-0 w-1 bg-primary h-full"></div>
+               <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
+                    <Wallet className="h-3 w-3" /> TOTAL BATCH AMOUNT
+                  </CardTitle>
+               </CardHeader>
+               <CardContent className="space-y-6">
+                  {/* Batch Details Badge */}
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-muted/40 border border-muted/20 mt-1">
+                     <GraduationCap className="h-3 w-3 text-muted-foreground" />
+                     <span className="text-[10px] font-black uppercase tracking-widest text-foreground">
+                        BATCH: {student?.grade || 'UNASSIGNED'}
+                     </span>
+                  </div>
 
-                 <Card className={`relative overflow-hidden ${totalDue > 0 ? 'bg-red-500/10 border-red-500/20' : 'bg-card'}`}>
-                    <CardContent className="p-4 flex items-center justify-between">
-                       <div>
-                          <p className={`text-[9px] font-bold uppercase tracking-widest mb-1 ${totalDue > 0 ? 'text-red-400' : 'text-muted-foreground'}`}>Pending</p>
-                          <div className={`text-xl font-black ${totalDue > 0 ? 'text-red-400' : 'text-foreground'}`}>₹{totalDue.toLocaleString()}</div>
-                       </div>
-                       <IndianRupee className={`h-5 w-5 ${totalDue > 0 ? 'text-red-400' : 'text-muted-foreground opacity-50'}`} />
-                    </CardContent>
-                 </Card>
-
-                 <Card className="bg-gradient-to-br from-zinc-800 to-zinc-900 border-border">
-                    <CardContent className="p-4">
-                       <div className="flex justify-between items-center mb-1">
-                          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Scholarship</span>
-                          <Badge variant="outline" className="text-[7px] h-3 py-0 border-primary text-primary">Active</Badge>
-                       </div>
-                       <div className="text-lg font-black text-foreground italic">15% OFF</div>
-                       <p className="text-[8px] text-muted-foreground mt-1">Academic Merit Merit Rebate Applied</p>
-                    </CardContent>
-                 </Card>
-              </div>
-
-              <div className="space-y-4">
-                 <div className="flex items-center gap-2 px-1">
-                    <Clock className="h-4 w-4 text-primary" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Timeline</span>
-                 </div>
-                 <div className="space-y-2 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[1px] before:bg-muted/30">
-                    {[
-                      { month: 'JAN', status: 'Paid', amount: 15000 },
-                      { month: 'FEB', status: 'Paid', amount: 15000 },
-                      { month: 'MAR', status: 'Paid', amount: 5000 },
-                      { month: 'APR', status: 'Overdue', amount: 15000 },
-                      { month: 'MAY', status: 'Upcoming', amount: 2500 },
-                      { month: 'JUN', status: 'Upcoming', amount: 15000 },
-                    ].map((inst, i) => (
-                      <div key={i} className="flex items-start gap-4 group pl-1">
-                         <div className={`h-5 w-5 rounded-full flex items-center justify-center shrink-0 z-10 border-2 ${inst.status === 'Paid' ? 'bg-card border-emerald-500 text-emerald-600' : inst.status === 'Overdue' ? 'bg-card border-red-500 text-red-500' : 'bg-card border-muted text-muted-foreground'}`}>
-                            {inst.status === 'Paid' ? <CheckCircle2 className="h-2.5 w-2.5" /> : inst.status === 'Overdue' ? <AlertCircle className="h-2.5 w-2.5" /> : <div className="h-1 w-1 bg-current rounded-full" />}
-                         </div>
-                         <div className="flex-1 pb-4">
-                            <div className="flex justify-between items-center mb-0.5">
-                               <span className="text-[10px] font-black tracking-widest text-foreground group-hover:text-primary transition-colors">{inst.month} '24</span>
-                               <span className="text-[10px] font-bold">₹{inst.amount.toLocaleString()}</span>
-                            </div>
-                            <span className={`text-[8px] uppercase font-bold tracking-tighter ${inst.status === 'Paid' ? 'text-emerald-600' : inst.status === 'Overdue' ? 'text-red-500/70' : 'text-muted-foreground'}`}>{inst.status}</span>
-                         </div>
-                      </div>
-                    ))}
-                 </div>
-              </div>
-            </div>
-
-            {/* Column 2 & 3: Main Ledger Content */}
-            <div className="md:col-span-3 space-y-6">
-               <Card className="border-muted/20 overflow-hidden shadow-2xl bg-card backdrop-blur-sm">
-                  <CardHeader className="bg-muted/10 border-b border-muted/20 flex flex-row items-center justify-between py-4">
+                  <div className="flex items-center justify-between pt-2">
                      <div>
-                        <CardTitle className="flex items-center gap-2 text-primary uppercase tracking-[0.1em] text-sm">
-                           <History className="h-4 w-4" /> Transaction History
-                        </CardTitle>
-                        <CardDescription className="text-[10px]">All detailed invoices and payment logs</CardDescription>
+                        <div className="text-4xl font-black italic tracking-tighter text-foreground decoration-primary/30 underline underline-offset-8 decoration-2">₹{(totalPaid + totalDue).toLocaleString()}</div>
+                        <p className="text-[9px] text-muted-foreground uppercase font-black tracking-widest mt-3 opacity-70">Total Batch Amount</p>
                      </div>
-                     <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" className="h-7 text-[9px] uppercase font-bold border-muted/50">
-                           <Download className="h-3 w-3 mr-1" /> Export CSV
-                        </Button>
+                     <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20 shadow-[0_0_20px_rgba(var(--primary),0.15)] group-hover:scale-110 transition-transform duration-500">
+                        <IndianRupee className="h-8 w-8" />
                      </div>
-                  </CardHeader>
-                  <CardContent className="p-0">
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                     <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 group-hover:bg-emerald-500/10 transition-colors">
+                        <p className="text-[9px] font-black uppercase text-emerald-600 tracking-widest mb-1">Total Paid</p>
+                        <p className="text-lg font-black text-emerald-700">₹{totalPaid.toLocaleString()}</p>
+                     </div>
+                     <div className="p-4 rounded-2xl bg-red-500/5 border border-red-500/10 group-hover:bg-red-500/10 transition-colors">
+                        <p className="text-[9px] font-black uppercase text-red-600 tracking-widest mb-1">Total Due</p>
+                        <p className="text-lg font-black text-red-700">₹{totalDue.toLocaleString()}</p>
+                     </div>
+                  </div>
+
+                  <div className="relative pt-2">
+                     <div className="flex justify-between items-center text-[10px] font-black uppercase text-muted-foreground mb-2 tracking-widest">
+                        <span>Payment Integrity</span>
+                        <span className="text-primary font-mono">{Math.round((totalPaid / (totalPaid * 1.5 || 1)) * 100)}%</span>
+                     </div>
+                     <div className="w-full bg-muted/40 rounded-full h-2 overflow-hidden border border-muted/20">
+                        <motion.div 
+                           initial={{ width: 0 }}
+                           animate={{ width: `${(totalPaid / (totalPaid + totalDue)) * 100}%` }}
+                           className="bg-gradient-to-r from-primary to-cyan-400 h-2 rounded-full shadow-[0_0_10px_rgba(var(--primary),0.4)]"
+                        />
+                     </div>
+                     <p className="text-[8px] text-muted-foreground mt-3 italic font-serif">Calculation based on active enrollment ledger assets.</p>
+                  </div>
+               </CardContent>
+            </Card>
+
+            {/* 2. INSTALLMENTS SECTION */}
+            <Card className="border-muted/20 bg-card/40 backdrop-blur-md relative overflow-hidden group">
+               <div className="absolute top-0 left-0 w-1 bg-cyan-500 h-full"></div>
+               <CardHeader 
+                 className="pb-2 cursor-pointer hover:bg-muted/10 transition-colors"
+                 onClick={() => setShowInstallments(!showInstallments)}
+               >
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
+                      <Clock className="h-3 w-3" /> INSTALLMENTS SECTION
+                    </CardTitle>
+                    {showInstallments ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                  </div>
+               </CardHeader>
+               <CardContent className="pt-4">
+                  {!showInstallments ? (
+                     <div 
+                        className="text-center py-8 cursor-pointer group/summary" 
+                        onClick={() => setShowInstallments(true)}
+                     >
+                        <div className="text-3xl font-black text-foreground mb-1 group-hover/summary:text-cyan-500 transition-colors">{computedInvoices.length}</div>
+                        <p className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground">Total Installments</p>
+                        <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/40 border border-muted/20 text-[9px] font-bold text-foreground">
+                           <span className="text-emerald-500">{computedInvoices.filter(i => i.computedStatus === 'Paid').length} Paid</span> • <span className="text-red-500">{computedInvoices.filter(i => i.computedStatus === 'Overdue').length} Overdue</span> • <span>{computedInvoices.filter(i => i.computedStatus === 'Upcoming' || i.computedStatus === 'Partial' || i.computedStatus === 'Unpaid').length} Pending</span>
+                        </div>
+                     </div>
+                  ) : (
+                     <div className="max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+                        <div className="space-y-4 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[1px] before:bg-muted/30">
+                          {computedInvoices.length === 0 ? (
+                             <div className="text-center py-6 text-muted-foreground text-[10px] uppercase font-bold tracking-widest animate-pulse">No Installments Found</div>
+                          ) : (
+                            computedInvoices.map((inst, i) => (
+                            <div key={inst.id} className="flex items-start gap-4 group/item pl-1">
+                               <div className={`h-6 w-6 rounded-full flex items-center justify-center shrink-0 z-10 border-2 transition-all group-hover/item:scale-110 ${inst.computedStatus === 'Paid' ? 'bg-background border-emerald-500 text-emerald-600 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : inst.computedStatus === 'Overdue' ? 'bg-background border-red-500 text-red-500 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : inst.computedStatus === 'Partial' ? 'bg-background border-yellow-500 text-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.2)]' : 'bg-background border-muted text-muted-foreground'}`}>
+                                  {inst.computedStatus === 'Paid' ? <CheckCircle2 className="h-3 w-3" /> : (inst.computedStatus === 'Overdue' || inst.computedStatus === 'Partial') ? <AlertCircle className="h-3 w-3" /> : <div className="h-1.5 w-1.5 bg-current rounded-full" />}
+                               </div>
+                               <div className="flex-1 pb-5 border-b border-muted/10 last:border-0 last:pb-0">
+                                  <div className="flex justify-between items-center mb-1">
+                                     <span className="text-xs font-black tracking-widest text-foreground group-hover/item:text-primary transition-colors">{inst.title}</span>
+                                     <span className="text-sm font-black font-mono">₹{inst.totalAmount.toLocaleString()}</span>
+                                  </div>
+                                  
+                                  {inst.computedStatus === 'Partial' && (
+                                     <div className="w-full bg-muted/40 rounded-full h-1 my-2 overflow-hidden">
+                                        <div className="bg-yellow-500 h-1 rounded-full" style={{ width: `${(inst.amountPaid! / inst.totalAmount) * 100}%` }}></div>
+                                     </div>
+                                  )}
+
+                                  <div className="flex justify-between items-center">
+                                     <div className="flex items-center gap-2">
+                                        <span className={`text-[9px] uppercase font-black tracking-tighter px-1.5 py-0.5 rounded ${inst.computedStatus === 'Paid' ? 'bg-emerald-500/10 text-emerald-600' : inst.computedStatus === 'Overdue' ? 'bg-red-500/10 text-red-500' : inst.computedStatus === 'Partial' ? 'bg-yellow-500/10 text-yellow-600' : 'bg-muted/50 text-muted-foreground'}`}>{inst.computedStatus}</span>
+                                        <span className={`text-[8px] font-bold uppercase tracking-widest ${inst.type === 'Incidental' ? 'text-indigo-400' : 'opacity-40'}`}>{inst.type}</span>
+                                     </div>
+                                     <span className="text-[9px] opacity-60 font-mono italic">Due {new Date(inst.dueDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                  </div>
+                               </div>
+                            </div>
+                          )))}
+                        </div>
+                     </div>
+                  )}
+               </CardContent>
+            </Card>
+
+          </div>
+
+          {/* 3. HISTORY SECTION */}
+            <Card className="border-muted/20 bg-card/40 backdrop-blur-md relative overflow-hidden group">
+               <div className="absolute top-0 left-0 w-1 bg-indigo-500 h-full"></div>
+               <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                  <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
+                    <History className="h-3 w-3" /> HISTORY SECTION
+                  </CardTitle>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 group-hover:bg-primary/10 group-hover:text-primary transition-all">
+                     <Download className="h-4 w-4" />
+                  </Button>
+               </CardHeader>
+               <CardContent className="p-0">
+                  <div className="max-h-[420px] overflow-auto custom-scrollbar">
                     <Table>
-                      <TableHeader className="bg-muted/5">
+                      <TableHeader className="bg-muted/10 sticky top-0 z-20 backdrop-blur-md">
                         <TableRow className="hover:bg-transparent border-muted/20">
-                          <TableHead className="text-[10px] font-black uppercase tracking-widest h-10 px-4">Invoice ID</TableHead>
-                          <TableHead className="text-[10px] font-black uppercase tracking-widest h-10 px-4">Date</TableHead>
-                          <TableHead className="text-[10px] font-black uppercase tracking-widest h-10 px-4">Description</TableHead>
-                          <TableHead className="text-[10px] font-black uppercase tracking-widest h-10 px-4">Amount</TableHead>
-                          <TableHead className="text-[10px] font-black uppercase tracking-widest h-10 px-4">Method</TableHead>
-                          <TableHead className="text-[10px] font-black uppercase tracking-widest h-10 px-4">Status</TableHead>
-                          <TableHead className="text-[10px] font-black uppercase tracking-widest h-10 px-4 text-right">Actions</TableHead>
+                          <TableHead className="text-[9px] font-black uppercase tracking-widest h-10 px-4">Timeline</TableHead>
+                          <TableHead className="text-[9px] font-black uppercase tracking-widest h-10 px-4">Amount</TableHead>
+                          <TableHead className="text-[9px] font-black uppercase tracking-widest h-10 px-4 text-right">State</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {invoices.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={7} className="text-center py-12 text-muted-foreground font-mono italic text-xs tracking-widest">NO ASSETS DETECTED</TableCell>
-                          </TableRow>
+                        {transactions.length === 0 ? (
+                           <TableRow>
+                             <TableCell colSpan={3} className="text-center py-20 text-muted-foreground font-mono italic text-[10px] tracking-[0.4em] uppercase animate-pulse">Drive_Is_Empty</TableCell>
+                           </TableRow>
                         ) : (
-                          invoices.map((inv) => (
-                            <TableRow key={inv.id} className="group hover:bg-muted transition-all border-muted/10">
-                              <TableCell className="font-mono text-[10px] text-muted-foreground uppercase px-4">{inv.id}</TableCell>
-                              <TableCell className="text-xs px-4">{(inv as any).date || inv.dueDate}</TableCell>
-                              <TableCell className="text-xs font-semibold px-4">{inv.category}</TableCell>
-                              <TableCell className="text-xs font-bold px-4 text-foreground">₹{inv.amount.toLocaleString()}</TableCell>
-                              <TableCell className="text-[10px] font-mono opacity-60 px-4 uppercase tracking-tighter">{(inv as any).paymentMethod || '-'}</TableCell>
-                              <TableCell className="px-4">
-                                <Badge variant={inv.status === "Paid" ? "success" : inv.status === "Partial" ? "warning" : "destructive"} className="text-[9px] h-5 px-2 font-black border-none ring-1 ring-inset ring-current/30">
-                                  {inv.status}
-                                </Badge>
+                          transactions.map((txn) => (
+                            <TableRow key={txn.id} className="group/row hover:bg-primary/5 border-muted/5 transition-colors">
+                              <TableCell className="px-4 py-4">
+                                <div className="text-[10px] font-black text-foreground group-hover/row:text-primary transition-colors tracking-widest">{txn.date}</div>
+                                <div className="text-[8px] text-muted-foreground font-mono mt-0.5">{txn.id}</div>
                               </TableCell>
-                              <TableCell className="text-right px-4">
-                                 <div className="flex justify-end gap-1">
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground transition-colors" title="Download Receipt">
-                                       <Printer className="h-3.5 w-3.5" />
-                                    </Button>
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-emerald-600 transition-colors" title="Send via WhatsApp">
-                                       <Share2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary transition-colors">
-                                       <Smartphone className="h-3.5 w-3.5" />
-                                    </Button>
-                                 </div>
+                              <TableCell className="px-4 py-4">
+                                <div className="text-[11px] font-black text-foreground">₹{txn.amount.toLocaleString()}</div>
+                                <div className="text-[8px] text-muted-foreground uppercase font-bold tracking-tighter">{txn.paymentMethod || 'SYSTEM'}</div>
+                              </TableCell>
+                              <TableCell className="text-right px-4 py-4">
+                                <Badge variant={txn.status === "Success" ? "success" : "destructive"} className="text-[9px] h-5 px-2 font-black uppercase tracking-tighter border-none shadow-sm">
+                                  {txn.status}
+                                </Badge>
                               </TableCell>
                             </TableRow>
                           ))
                         )}
                       </TableBody>
                     </Table>
-                  </CardContent>
-               </Card>
-
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-primary/5 border border-primary/20 rounded-2xl p-5 flex items-center justify-between group cursor-pointer hover:bg-primary/10 transition-all">
-                     <div className="flex items-center gap-4">
-                        <div className="h-10 w-10 rounded-xl bg-primary/20 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                           <Smartphone className="h-5 w-5" />
-                        </div>
-                        <div>
-                           <p className="text-xs font-bold">UPI Quick Pay</p>
-                           <p className="text-[10px] text-muted-foreground">Generate instant QR for this student</p>
-                        </div>
-                     </div>
-                     <ArrowLeft className="h-4 w-4 rotate-180 text-muted-foreground group-hover:translate-x-1 transition-transform" />
                   </div>
-                  <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 flex items-center justify-between group cursor-pointer hover:bg-emerald-500/10 transition-all">
-                     <div className="flex items-center gap-4">
-                        <div className="h-10 w-10 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-600 group-hover:scale-110 transition-transform">
-                           <CreditCard className="h-5 w-5" />
-                        </div>
-                        <div>
-                           <p className="text-xs font-bold">POS Terminal</p>
-                           <p className="text-[10px] text-muted-foreground">Swipe card and record transaction</p>
-                        </div>
-                     </div>
-                     <ArrowLeft className="h-4 w-4 rotate-180 text-muted-foreground group-hover:translate-x-1 transition-transform" />
-                  </div>
-               </div>
-            </div>
-          </div>
+               </CardContent>
+            </Card>
         </TabsContent>
 
         {/* Tab: Document Vault */}
@@ -1811,38 +1898,148 @@ export function StudentProfile() {
                   <div className="space-y-4">
                      <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Installment</label>
-                        <div className="grid grid-cols-2 gap-2">
-                           {['April 2024', 'May 2024'].map(m => (
-                             <button key={m} className="p-3 rounded-xl border border-muted/20 text-xs font-bold bg-muted/10 hover:border-primary/50 transition-all text-left">
-                                {m} <br/>
-                                <span className="text-primary">₹15,000</span>
+                        <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar">
+                           {computedInvoices.filter(i => i.computedStatus !== 'Paid').map(inv => (
+                             <button 
+                                key={inv.id} 
+                                onClick={() => {
+                                   setSelectedInvoiceId(inv.id);
+                                   setPaymentAmount(inv.amountDue.toString());
+                                }}
+                                className={`p-3 rounded-xl border text-xs font-bold transition-all text-left ${selectedInvoiceId === inv.id ? 'border-primary/50 bg-primary/10' : 'border-muted/20 bg-muted/10 flex-col hover:border-primary/30'}`}
+                             >
+                                <div className="flex justify-between items-center w-full">
+                                   <span className="truncate pr-2">{inv.title}</span>
+                                   <span className={`text-[8px] uppercase px-1.5 py-0.5 rounded ${inv.computedStatus === 'Overdue' ? 'bg-red-500/10 text-red-500' : 'bg-muted text-muted-foreground'}`}>{inv.computedStatus}</span>
+                                </div>
+                                <div className="text-primary mt-1">₹{inv.amountDue.toLocaleString()}</div>
                              </button>
                            ))}
+                           {computedInvoices.filter(i => i.computedStatus !== 'Paid').length === 0 && (
+                              <div className="col-span-2 text-center py-4 text-xs font-mono text-muted-foreground">No pending installments.</div>
+                           )}
                         </div>
                      </div>
 
-                     <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Amount to Collect</label>
-                        <div className="relative">
-                           <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary" />
-                           <Input className="pl-10 h-12 bg-muted border-border text-xl font-black italic" placeholder="0.00" />
+                     <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                           <div className="space-y-2">
+                              <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Amount to Collect</label>
+                              <div className="relative">
+                                 <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary" />
+                                 <Input 
+                                    value={paymentAmount}
+                                    onChange={(e) => setPaymentAmount(e.target.value)}
+                                    type="number"
+                                    className="pl-10 h-10 bg-muted border-border text-lg font-black italic" 
+                                    placeholder="0" 
+                                 />
+                              </div>
+                           </div>
+                           <div className="space-y-2">
+                              <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Add Late Fee / Discount</label>
+                              <div className="relative">
+                                 <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                 <Input 
+                                    value={adjustmentAmount}
+                                    onChange={(e) => setAdjustmentAmount(e.target.value)}
+                                    className="pl-10 h-10 bg-muted border-border text-sm font-black italic" 
+                                    placeholder="+/- 0" 
+                                 />
+                              </div>
+                              <p className="text-[8px] text-muted-foreground italic">Use '-' for scholarship/discount.</p>
+                           </div>
                         </div>
-                     </div>
 
-                     <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Payment Method</label>
-                        <div className="grid grid-cols-3 gap-2">
-                           {[
-                             { icon: <Smartphone className="h-4 w-4" />, label: 'UPI' },
-                             { icon: <CreditCard className="h-4 w-4" />, label: 'Card' },
-                             { icon: <IndianRupee className="h-4 w-4" />, label: 'Cash' },
-                           ].map(m => (
-                             <button key={m.label} className="flex flex-col items-center justify-center gap-2 p-3 rounded-xl border border-muted/20 bg-muted/5 hover:bg-primary/5 hover:border-primary/40 transition-all group">
-                                <div className="text-muted-foreground group-hover:text-primary">{m.icon}</div>
-                                <span className="text-[10px] font-bold uppercase tracking-tighter">{m.label}</span>
-                             </button>
-                           ))}
+                        <div className="space-y-2">
+                           <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Payment Method</label>
+                           <div className="grid grid-cols-4 gap-2">
+                              {[
+                                { icon: <Smartphone className="h-4 w-4" />, label: 'UPI' as const },
+                                { icon: <CreditCard className="h-4 w-4" />, label: 'Card' as const },
+                                { icon: <IndianRupee className="h-4 w-4" />, label: 'Cash' as const },
+                                { icon: <FileText className="h-4 w-4" />, label: 'Cheque' as const },
+                              ].map(m => (
+                                <button 
+                                  key={m.label} 
+                                  type="button"
+                                  onClick={() => setPaymentMethod(m.label)}
+                                  className={`flex flex-col items-center justify-center gap-2 p-3 rounded-xl border transition-all group outline-none ${paymentMethod === m.label ? 'border-primary/50 bg-primary/10' : 'border-muted/20 bg-muted/5 hover:bg-primary/5 hover:border-primary/40'}`}
+                                >
+                                   <div className={`${paymentMethod === m.label ? 'text-primary' : 'text-muted-foreground group-hover:text-primary transition-colors'}`}>{m.icon}</div>
+                                   <span className={`text-[9px] font-black uppercase tracking-tighter ${paymentMethod === m.label ? 'text-primary' : 'group-hover:text-primary'}`}>{m.label}</span>
+                                </button>
+                              ))}
+                           </div>
                         </div>
+
+                        <div className="space-y-2">
+                           <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                              Reference ID / Txn Hash {paymentMethod !== 'Cash' && <span className="text-red-500">*</span>}
+                           </label>
+                           <Input 
+                              value={paymentRefId}
+                              onChange={(e) => setPaymentRefId(e.target.value)}
+                              className="h-10 bg-card border-muted/40 text-xs font-mono placeholder:text-muted-foreground/30 focus-visible:ring-primary/20" 
+                              placeholder="e.g. UPI-REF-909281 / CHQ-00129" 
+                           />
+                        </div>
+
+                        <Button 
+                          type="button"
+                          onClick={async () => {
+                             if (!selectedInvoiceId || !paymentAmount || isNaN(Number(paymentAmount)) || Number(paymentAmount) <= 0) return;
+                             if (!paymentRefId && (paymentMethod === 'UPI' || paymentMethod === 'Cheque' || paymentMethod === 'Card')) {
+                                alert('Reference ID is required for digital/cheque payments.');
+                                return;
+                             }
+                             
+                             setIsProcessingPayment(true);
+                             try {
+                               const timestamp = new Date().toISOString();
+                               const amount = Number(paymentAmount);
+                               const adjustment = Number(adjustmentAmount) || 0;
+                               
+                               // Secure Backend Logic: Use Supabase database RPC only
+                               if (supabase && id) {
+                                 const { data, error } = await supabase.rpc('process_installment_payment_v3', {
+                                    p_invoice_id: selectedInvoiceId,
+                                    p_student_id: student?.id,
+                                    p_amount: amount,
+                                    p_payment_method: paymentMethod,
+                                    p_reference_id: paymentRefId || `MAN-${Date.now()}`,
+                                    p_adjustment_amount: adjustment,
+                                    p_adjustment_title: adjustment > 0 ? 'Late Fee' : 'Discount/Scholarship'
+                                 });
+                                 
+                                 if (error) {
+                                   console.error("RPC Error:", error);
+                                   alert(`Payment processing failed: ${error.message}`);
+                                 } else {
+                                   // Successfully processed securely, refetch data
+                                   await fetchStudentData(true);
+                                   setIsPaymentDrawerOpen(false);
+                                   setPaymentAmount('');
+                                   setPaymentRefId('');
+                                   setAdjustmentAmount('');
+                                   setSelectedInvoiceId(null);
+                                 }
+                               } else {
+                                 alert("Database connection is not configured or Student ID is missing.");
+                               }
+                               
+                             } catch (e) {
+                               console.error("Payment processing failed:", e);
+                               alert("Failed to process payment");
+                             } finally {
+                               setIsProcessingPayment(false);
+                             }
+                          }}
+                          disabled={!selectedInvoiceId || !paymentAmount || isProcessingPayment || (paymentMethod !== 'Cash' && !paymentRefId.trim())}
+                          className="w-full h-12 font-black uppercase tracking-widest text-xs rounded-xl shadow-[0_0_20px_rgba(var(--primary),0.2)] mt-8"
+                        >
+                          {isProcessingPayment ? 'Processing...' : 'Confirm Payment'}
+                        </Button>
                      </div>
                   </div>
 
@@ -1865,7 +2062,12 @@ export function StudentProfile() {
                </div>
 
                <div className="p-6 border-t border-border bg-card/80 backdrop-blur-md">
-                  <Button className="w-full h-14 bg-emerald-500 hover:bg-emerald-600 text-black font-black uppercase tracking-widest text-sm shadow-[0_10px_20px_rgba(16,185,129,0.3)] group">
+                  <Button 
+                    type="button"
+                    onClick={() => {
+                        alert("Please use the 'Confirm Payment' button above to process transactions.");
+                    }}
+                    className="w-full h-14 bg-emerald-500 hover:bg-emerald-600 text-black font-black uppercase tracking-widest text-sm shadow-[0_10px_20px_rgba(16,185,129,0.3)] group">
                      Confirm & Generate Receipt
                      <Receipt className="ml-2 h-4 w-4 group-hover:rotate-12 transition-transform" />
                   </Button>

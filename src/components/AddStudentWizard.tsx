@@ -24,6 +24,8 @@ const wizardSchema = z.object({
   motherTongue: z.string().optional(),
   primaryLanguage: z.string().optional(),
   grade: z.string().min(1, "Grade is required"),
+  batchId: z.string().min(1, "Batch is required"),
+  installmentsCount: z.string().min(1, "Installments count is required"),
 
   parent1Name: z.string().min(2, "Required"),
   parent1Relation: z.string().min(2, "Required"),
@@ -109,6 +111,14 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
   const [currentStep, setCurrentStep] = useState(1);
   const [documents, setDocuments] = useState<Record<string, File>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [availableBatches, setAvailableBatches] = useState<any[]>([]);
+
+  React.useEffect(() => {
+    (async () => {
+      const data = await api.getBatches();
+      if (data) setAvailableBatches(data);
+    })();
+  }, []);
 
   const {
     register,
@@ -129,11 +139,13 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
 
   const isInternational = watch("isInternational");
   const dob = watch("dateOfBirth");
+  const selectedBatchId = watch("batchId");
+  const selectedBatch = availableBatches.find(b => b.id === selectedBatchId);
 
   const nextStep = async () => {
     let fieldsToValidate: (keyof WizardFormValues)[] = [];
     if (currentStep === 1) {
-      fieldsToValidate = ['firstName', 'lastName', 'dateOfBirth', 'gender', 'grade'];
+      fieldsToValidate = ['firstName', 'lastName', 'dateOfBirth', 'gender', 'grade', 'batchId', 'installmentsCount'];
     } else if (currentStep === 2) {
       fieldsToValidate = ['parent1Name', 'parent1Relation', 'parent1Contact', 'addressLine1', 'city', 'state', 'zipCode'];
     } else if (currentStep === 3) {
@@ -194,6 +206,8 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
         mother_tongue: data.motherTongue,
         primary_language: data.primaryLanguage,
         grade: data.grade,
+        batch_id: data.batchId,
+        installments_count: parseInt(data.installmentsCount || "1", 10),
         parent1_name: data.parent1Name,
         parent1_relation: data.parent1Relation,
         parent1_occupation: data.parent1Occupation,
@@ -377,6 +391,29 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                             <option value="12th">12th Grade</option>
                           </select>
                           {errors.grade && <span className="text-[10px] text-destructive">{errors.grade.message}</span>}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 mt-2">
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Select Batch *</label>
+                          <select {...register("batchId")} className="w-full h-9 px-3 py-1 bg-background border border-input rounded-md text-sm">
+                            <option value="">Select Batch...</option>
+                            {availableBatches.map((b) => (
+                              <option key={b.id} value={b.id}>{b.name} (₹{b.total_batch_amount})</option>
+                            ))}
+                          </select>
+                          {errors.batchId && <span className="text-[10px] text-destructive">{errors.batchId.message}</span>}
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Installment Plan *</label>
+                          <select {...register("installmentsCount")} className="w-full h-9 px-3 py-1 bg-background border border-input rounded-md text-sm" disabled={!selectedBatch}>
+                            <option value="">Select Plan...</option>
+                            {selectedBatch && Array.from({ length: selectedBatch.max_installments - selectedBatch.min_installments + 1 }, (_, i) => selectedBatch.min_installments + i).map(num => (
+                              <option key={num} value={num}>{num} Installment(s)</option>
+                            ))}
+                          </select>
+                          {errors.installmentsCount && <span className="text-[10px] text-destructive">{errors.installmentsCount.message}</span>}
                         </div>
                       </div>
 

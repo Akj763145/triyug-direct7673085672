@@ -1,3 +1,15 @@
+export interface Batch {
+  id: string;
+  name: string;
+  description?: string;
+  totalBatchAmount: number;
+  minInstallments: number;
+  maxInstallments: number;
+  status: 'Active' | 'Archived' | 'Draft';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Student {
   id: string;
   student_id?: string;
@@ -66,24 +78,44 @@ export interface Staff {
   salary: number;
 }
 
-export interface Invoice {
+export interface FeeTemplate {
   id: string;
-  studentId: string;
-  studentName: string;
-  category: string;
-  amount: number;
-  dueDate: string;
-  status: "Paid" | "Unpaid" | "Partial";
+  name: string; // e.g. "Computer Science 101"
+  baseAmount: number;
 }
 
-export interface Transaction {
+export interface LedgerLineItem {
   id: string;
-  date: string;
-  description: string;
-  type: "Income" | "Expense";
-  category: "Fees" | "Payroll" | "Utilities" | "Resources" | "Rent";
+  title: string;
   amount: number;
 }
+
+export interface LedgerInvoice {
+  id: string;
+  studentId: string;
+  templateId?: string;
+  title: string; // e.g. "Tuition Fee - Core"
+  totalAmount: number;
+  dueDate: string;
+  status: "Upcoming" | "Unpaid" | "Partial" | "Paid" | "Overdue";
+  type: "Primary" | "Incidental";
+  lineItems?: LedgerLineItem[];
+}
+
+export interface LedgerTransaction {
+  id: string;
+  invoiceId?: string;
+  studentId?: string;
+  date: string;
+  amount: number;
+  paymentMethod?: "UPI" | "Cash" | "Cheque" | "Card" | "Bank Transfer" | string;
+  referenceId?: string;
+  status?: "Success" | "Failed" | "Pending" | string;
+  description?: string;
+  type?: string;
+  category?: string;
+}
+
 
 export interface Resource {
   id: string;
@@ -148,3 +180,18 @@ export interface StudentAssignment {
   status: "Pending" | "Submitted" | "Late" | "Graded";
   score?: number;
 }
+
+// Global Legacy / Page Utility compatibility aliases
+export interface Invoice {
+  id: string;
+  studentId: string;
+  studentName?: string;
+  title?: string;
+  category?: string;
+  amount: number;
+  dueDate: string;
+  status: "Paid" | "Partial" | "Unpaid" | "Upcoming" | "Overdue";
+}
+
+export type Transaction = LedgerTransaction;
+

@@ -1,16 +1,8 @@
 import { supabase } from './supabase'
-import {
-  mockStudents,
-  mockStaff,
-  mockInvoices,
-  mockTransactions,
-  mockResources,
-  mockActivityLog
-} from '../data/mockDb'
-import { Student, Staff, Invoice, Transaction, Resource, ActivityLog } from '../types'
+import { Student, Staff, LedgerInvoice, LedgerTransaction, Resource, ActivityLog } from '../types'
 
 // Database generic fetcher
-async function fetchFromSupabase(table: string, mockFallback: any[]) {
+async function fetchFromSupabase(table: string) {
   if (supabase) {
     try {
       const { data, error } = await supabase.from(table).select('*')
@@ -59,43 +51,57 @@ async function updateInSupabase(table: string, id: string, payload: any) {
 // Services
 export const api = {
   getStudents: async () => {
-    const profiles = await fetchFromSupabase('student_profiles', []);
-    const oldStudents = await fetchFromSupabase('students', mockStudents);
+    const profiles = await fetchFromSupabase('student_profiles');
+    const oldStudents = await fetchFromSupabase('students');
     
-    let mappedProfiles = [];
+    let mappedProfiles: any[] = [];
+    const profileIds = new Set();
+    const profileStudentIds = new Set();
+    
     if (profiles && profiles.length > 0) {
-      mappedProfiles = profiles.map((p: any) => ({
-        id: p.id,
-        student_id: p.student_id,
-        name: `${p.first_name} ${p.last_name}`,
-        grade: p.grade,
-        contact: p.parent1_contact || 'N/A',
-        status: p.status === 'Active' ? 'Active' : 'Graduated', // Simple mapping
-        photo_url: p.photo_url || undefined
-      }));
+      mappedProfiles = profiles.map((p: any) => {
+        if (p.id) profileIds.add(p.id);
+        if (p.student_id) profileStudentIds.add(p.student_id);
+        
+        return {
+          id: p.student_id || p.id,
+          name: `${p.first_name} ${p.last_name}`,
+          grade: p.grade,
+          contact: p.parent1_contact || 'N/A',
+          status: p.status, // Use actual status
+          photo_url: p.photo_url || undefined
+        };
+      });
     }
     
-    return [...mappedProfiles, ...(oldStudents || [])];
+    const filteredOldStudents = (oldStudents || []).filter((s: any) => {
+      if (profileIds.has(s.id) || profileStudentIds.has(s.id)) return false;
+      if (profileIds.has(s.student_id) || profileStudentIds.has(s.student_id)) return false;
+      return true;
+    });
+    
+    return [...mappedProfiles, ...filteredOldStudents];
   },
   addStudent: (student: Omit<Student, 'id'>) => {
     const defaultId = `STU-${Math.floor(Math.random() * 10000)}`
     return insertToSupabase('students', { ...student, id: defaultId })
   },
   
-  getStaff: () => fetchFromSupabase('staff', mockStaff),
+  getStaff: () => fetchFromSupabase('staff'),
   
-  getInvoices: () => fetchFromSupabase('invoices', mockInvoices),
+  getBatches: () => fetchFromSupabase('batches'),
+  getInvoices: () => fetchFromSupabase('invoices'),
   
-  getTransactions: () => fetchFromSupabase('transactions', mockTransactions),
-  addTransaction: (transaction: Omit<Transaction, 'id'>) => {
+  getTransactions: () => fetchFromSupabase('transactions'),
+  addTransaction: (transaction: Omit<LedgerTransaction, 'id'>) => {
     const defaultId = `TXN-${Math.floor(Math.random() * 10000)}`
     return insertToSupabase('transactions', { ...transaction, id: defaultId })
   },
   
-  getResources: () => fetchFromSupabase('resources', mockResources),
+  getResources: () => fetchFromSupabase('resources'),
   updateResourceStatus: (id: string, status: string) => updateInSupabase('resources', id, { status }),
   
-  getActivityLogs: () => fetchFromSupabase('activity_logs', mockActivityLog),
+  getActivityLogs: () => fetchFromSupabase('activity_logs'),
   addActivityLog: (log: Omit<ActivityLog, 'id'>) => insertToSupabase('activity_logs', log),
 
   addStudentProfile: (profile: any) => insertToSupabase('student_profiles', profile),

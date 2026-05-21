@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
-import { Users, UserCog, IndianRupee, Layers, QrCode, CheckCircle2, X } from "lucide-react";
-import { chartData } from "../data/mockDb";
+import { Calendar, Users, UserCog, IndianRupee, Layers, QrCode, CheckCircle2, X } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { api } from "../lib/api";
 import { ActivityLog } from "../types";
@@ -13,6 +12,8 @@ import { QRScanner } from "../components/QRScanner";
 import { supabase } from "../lib/supabase";
 import { Button } from "../components/ui/button";
 import { motion, AnimatePresence } from "motion/react";
+import { initAuth, googleSignIn, getAccessToken, logout as googleLogout } from "../lib/auth";
+import { User } from "firebase/auth";
 
 const playBeep = () => {
   try {
@@ -27,11 +28,11 @@ const playBeep = () => {
     
     osc.type = 'sine';
     osc.frequency.setValueAtTime(1046.50, ctx.currentTime); // C6 Note
-    gain.gain.setValueAtTime(0.2, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.5, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3);
     
     osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.15);
+    osc.stop(ctx.currentTime + 0.3);
   } catch (e) {
     console.error("Audio error", e);
   }
@@ -39,6 +40,7 @@ const playBeep = () => {
 
 export function Dashboard() {
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [chartData, setChartData] = useState<any[]>([]);
   const [stats, setStats] = useState({
     students: 0,
     staff: 0,
@@ -48,6 +50,82 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
+  const [needsAuth, setNeedsAuth] = useState<boolean>(true);
+  const [token, setToken] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  useEffect(() => {
+    initAuth(
+      (u, t) => { setNeedsAuth(false); setUser(u); setToken(t); },
+      () => { setNeedsAuth(true); setUser(null); setToken(null); }
+    );
+  }, []);
+
+  const handleGoogleLogin = async () => {
+    try {
+      const result = await googleSignIn();
+      if (result) {
+        setToken(result.accessToken);
+        setUser(result.user);
+        setNeedsAuth(false);
+      }
+    } catch (err) {
+      console.error('Login failed:', err);
+    }
+  };
+
+  const handleSyncToCalendar = async () => {
+    if (!token) {
+      setNeedsAuth(true);
+      return;
+    }
+    const confirmed = window.confirm(
+      "Are you sure you want to create a daily attendance summary event in your Google Calendar?"
+    );
+    if (!confirmed) return;
+
+    setIsSyncing(true);
+    try {
+      const date = new Date().toISOString().split('T')[0];
+      const { data: attendanceData } = await supabase
+        .from('student_attendance')
+        .select('*')
+        .eq('date', date);
+
+      const presentCount = attendanceData?.filter(a => a.status === 'Present').length || 0;
+      const totalCount = attendanceData?.length || 0;
+
+      const event = {
+        summary: `School Attendance - ${date}`,
+        description: `Total Students Marked: ${totalCount}\nPresent: ${presentCount}\nAbsent/Late/Excused: ${totalCount - presentCount}`,
+        start: {
+          date: date, // All day event
+        },
+        end: {
+          date: date,
+        }
+      };
+
+      const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(event)
+      });
+
+      if (!res.ok) throw new Error('Failed to create calendar event');
+      alert('Successfully synced to Google Calendar!');
+    } catch (error) {
+      console.error('Calendar sync error:', error);
+      alert('Failed to sync with calendar. Try signing in again.');
+      setNeedsAuth(true);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleScanSuccess = async (decodedText: string) => {
     if (decodedText.startsWith('ATTENDANCE_SCAN:')) {
@@ -91,11 +169,51 @@ export function Dashboard() {
         api.getResources()
       ]);
 
+      // Calculate dynamic chart financials
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const currentYear = new Date().getFullYear();
+      
+      const dynamicChartData = months.map(m => ({
+        month: m,
+        revenue: 0,
+        expenses: 0
+      }));
+
+      // Account for real invoice revenues
+      if (Array.isArray(invoices)) {
+        invoices.forEach((inv: any) => {
+          if (inv.due_date || inv.dueDate) {
+            const dateStr = inv.due_date || inv.dueDate;
+            const date = new Date(dateStr);
+            if (!isNaN(date.getTime()) && date.getFullYear() === currentYear) {
+              const monthIdx = date.getMonth();
+              // Support both standard column naming and camelCase variations
+              const amt = Number(inv.amount || inv.total_amount || inv.totalAmount || 0);
+              const isPaid = inv.status?.toLowerCase() === 'paid';
+              if (isPaid) {
+                dynamicChartData[monthIdx].revenue += amt;
+              }
+            }
+          }
+        });
+      }
+
+      // Account for real payroll expenses
+      if (Array.isArray(staff)) {
+        staff.forEach((st: any) => {
+          const sal = Number(st.salary || 0);
+          dynamicChartData.forEach(d => {
+            d.expenses += sal;
+          });
+        });
+      }
+
+      setChartData(dynamicChartData);
       setActivityLogs(logs as ActivityLog[]);
       setStats({
         students: students.length,
         staff: staff.length,
-        fees: (invoices as any[]).reduce((acc, inv) => acc + (inv.status === 'Paid' ? inv.amount : 0), 0),
+        fees: (invoices as any[]).reduce((acc, inv) => acc + (inv.status === 'Paid' ? (inv.amount || inv.total_amount || inv.totalAmount || 0) : 0), 0),
         resources: resources.length
       });
       setLoading(false);
@@ -115,13 +233,32 @@ export function Dashboard() {
           <p className="text-xs text-muted-foreground">Admin control panel & front-desk monitoring</p>
         </div>
 
-        <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-primary/90 hover:bg-primary shadow-lg shadow-primary/20 gap-2 border-primary/20 border-b-4 hover:translate-y-[1px] active:border-b-0 active:translate-y-[4px] transition-all">
-              <QrCode className="h-4 w-4" />
-              Scan Attendance
+        <div className="flex items-center gap-3">
+          {needsAuth ? (
+            <Button variant="outline" onClick={handleGoogleLogin} className="flex gap-2 items-center">
+              <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-4 h-4">
+                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                <path fill="none" d="M0 0h48v48H0z"></path>
+              </svg>
+              Sign in Calendar
             </Button>
-          </DialogTrigger>
+          ) : (
+             <Button variant="outline" onClick={handleSyncToCalendar} disabled={isSyncing} className="gap-2 text-indigo-600 border-indigo-200 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-700">
+               <Calendar className="h-4 w-4" />
+               {isSyncing ? "Syncing..." : "Sync Calendar"}
+             </Button>
+          )}
+
+          <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-primary/90 hover:bg-primary shadow-lg shadow-primary/20 gap-2 border-primary/20 border-b-4 hover:translate-y-[1px] active:border-b-0 active:translate-y-[4px] transition-all">
+                <QrCode className="h-4 w-4" />
+                Scan Attendance
+              </Button>
+            </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
@@ -160,6 +297,7 @@ export function Dashboard() {
             </div>
           </DialogContent>
         </Dialog>
+      </div>
       </div>
       
       {/* KPI Cards */}

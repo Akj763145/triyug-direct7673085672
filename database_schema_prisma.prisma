@@ -1,0 +1,72 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+/// Dynamic batch status state
+enum BatchStatus {
+  Active
+  Archived
+  Draft
+}
+
+/// Enforced invoice status enumeration
+enum InvoiceStatus {
+  UPCOMING
+  UNPAID
+  PARTIAL
+  PAID
+  OVERDUE
+}
+
+/// Academic batches offering program tracks with distinct financial definitions
+model Batch {
+  id               String       @id @default(uuid()) @db.Uuid
+  name             String       @db.VarChar(255)
+  description      String?      @db.Text
+  totalBatchAmount Float        @map("total_batch_amount")
+  minInstallments  Int          @default(1) @map("min_installments")
+  maxInstallments  Int          @default(1) @map("max_installments")
+  status           BatchStatus  @default(Active)
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  
+  enrollments      Enrollment[]
+
+  @@map("batches")
+}
+
+/// Core mapping tracking single student registration configuration for an academic track
+model Enrollment {
+  id                String       @id @default(uuid()) @db.Uuid
+  studentId         String       @map("student_id") @db.Uuid
+  batchId           String       @map("batch_id") @db.Uuid
+  chosenInstallments Int         @map("chosen_installments")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+
+  batch             Batch        @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  invoices          Invoice[]
+
+  @@unique([studentId, batchId])
+  @@map("enrollments")
+}
+
+/// Secure individual ledger installment trackers
+model Invoice {
+  id            String        @id @default(uuid()) @db.Uuid
+  enrollmentId  String        @map("enrollment_id") @db.Uuid
+  amount        Float         @db.DoublePrecision
+  dueDate       DateTime      @map("due_date")
+  status        InvoiceStatus @default(UPCOMING)
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  enrollment    Enrollment    @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@map("invoices")
+}

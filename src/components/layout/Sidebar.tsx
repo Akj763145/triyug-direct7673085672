@@ -7,6 +7,7 @@ const navItems = [
   { name: "Dashboard", to: "/", icon: LayoutDashboard },
   { name: "Student Management", to: "/students", icon: Users },
   { name: "Staff Management", to: "/staff", icon: UserCog },
+  { name: "Batch & Installments", to: "/batches", icon: Layers },
   { name: "Fee Management", to: "/fees", icon: Receipt },
   { name: "Ledger Management", to: "/ledger", icon: BookOpen },
   { name: "Resource Management", to: "/resources", icon: Layers },
