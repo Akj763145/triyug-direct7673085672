@@ -325,6 +325,7 @@ export function StudentProfile() {
           const mappedTxns = transactionData.map((t: any) => ({
             ...t,
             invoiceId: t.invoice_id,
+            amount: Number(t.amount),
             paymentMethod: t.payment_method || 'SYSTEM',
             status: t.status || 'Success'
           }));
@@ -637,15 +638,15 @@ export function StudentProfile() {
   
   const computedInvoices = invoices.map(inv => {
     const amountPaid = transactions
-      .filter(t => t.invoiceId === inv.id && t.status === 'Success')
-      .reduce((sum, t) => sum + t.amount, 0);
+      .filter(t => (t.invoiceId === inv.id || t.invoice_id === inv.id) && (t.status === 'Success' || t.status === 'success'))
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
     
     let computedStatus = inv.status;
     const isPastDue = new Date(inv.dueDate).getTime() < today.getTime();
     
-    if (amountPaid >= inv.totalAmount) {
+    if (inv.status === 'Paid' || amountPaid >= inv.totalAmount) {
       computedStatus = 'Paid';
-    } else if (amountPaid > 0) {
+    } else if (inv.status === 'Partial' || amountPaid > 0) {
       computedStatus = 'Partial';
     } else if (isPastDue) {
       computedStatus = 'Overdue';
@@ -1464,8 +1465,19 @@ export function StudentProfile() {
                      >
                         <div className="text-3xl font-black text-foreground mb-1 group-hover/summary:text-cyan-500 transition-colors">{computedInvoices.length}</div>
                         <p className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground">Total Installments</p>
-                        <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/40 border border-muted/20 text-[9px] font-bold text-foreground">
-                           <span className="text-emerald-500">{computedInvoices.filter(i => i.computedStatus === 'Paid').length} Paid</span> • <span className="text-red-500">{computedInvoices.filter(i => i.computedStatus === 'Overdue').length} Overdue</span> • <span>{computedInvoices.filter(i => i.computedStatus === 'Upcoming' || i.computedStatus === 'Partial' || i.computedStatus === 'Unpaid').length} Pending</span>
+                        <div className="mt-6 flex flex-wrap justify-center gap-2">
+                           <div className="px-4 py-2 rounded-xl bg-emerald-500/5 border border-emerald-500/10 text-center min-w-[75px] shadow-sm">
+                              <div className="text-lg font-black text-emerald-600 leading-none">{computedInvoices.filter(i => i.computedStatus === 'Paid').length}</div>
+                              <div className="text-[8px] uppercase font-black tracking-widest text-emerald-600/60 mt-1">Paid</div>
+                           </div>
+                           <div className="px-4 py-2 rounded-xl bg-red-500/5 border border-red-500/10 text-center min-w-[75px] shadow-sm">
+                              <div className="text-lg font-black text-red-600 leading-none">{computedInvoices.filter(i => i.computedStatus === 'Overdue').length}</div>
+                              <div className="text-[8px] uppercase font-black tracking-widest text-red-600/60 mt-1">Overdue</div>
+                           </div>
+                           <div className="px-4 py-2 rounded-xl bg-slate-500/5 border border-slate-500/10 text-center min-w-[75px] shadow-sm">
+                              <div className="text-lg font-black text-slate-600 leading-none">{computedInvoices.filter(i => i.computedStatus === 'Upcoming' || i.computedStatus === 'Partial').length}</div>
+                              <div className="text-[8px] uppercase font-black tracking-widest text-slate-600/60 mt-1">Pending</div>
+                           </div>
                         </div>
                      </div>
                   ) : (
@@ -1482,7 +1494,12 @@ export function StudentProfile() {
                                <div className="flex-1 pb-5 border-b border-muted/10 last:border-0 last:pb-0">
                                   <div className="flex justify-between items-center mb-1">
                                      <span className="text-xs font-black tracking-widest text-foreground group-hover/item:text-primary transition-colors">{inst.title}</span>
-                                     <span className="text-sm font-black font-mono">₹{inst.totalAmount.toLocaleString()}</span>
+                                     <div className="text-right">
+                                         <div className="text-sm font-black font-mono">₹{inst.totalAmount.toLocaleString()}</div>
+                                         {inst.computedStatus === 'Partial' && (
+                                            <div className="text-[9px] font-black text-red-500 font-mono">Due: ₹{(inst.amountDue || 0).toLocaleString()}</div>
+                                         )}
+                                      </div>
                                   </div>
                                   
                                   {inst.computedStatus === 'Partial' && (
@@ -2002,7 +2019,7 @@ export function StudentProfile() {
                                
                                // Secure Backend Logic: Use Supabase database RPC only
                                if (supabase && id) {
-                                 const { data, error } = await supabase.rpc('process_installment_payment_v3', {
+                                 const { data, error } = await supabase.rpc('process_installment_payment_v4', {
                                     p_invoice_id: selectedInvoiceId,
                                     p_student_id: student?.id,
                                     p_amount: amount,
