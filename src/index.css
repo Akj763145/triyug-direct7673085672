@@ -27,16 +27,16 @@
   --color-accent: #ECFDF5; /* Emerald 50 */
   --color-accent-foreground: #047857; /* Emerald 700 */
   
-  --color-destructive: #EF4444; /* Red 500 */
+  --color-destructive: #DC2626; /* Red 600 - Danger */
   --color-destructive-foreground: #FFFFFF;
 
-  --color-warning: #F59E0B; /* Amber 500 */
+  --color-warning: #D97706; /* Amber 600 - Warning */
   --color-warning-foreground: #FFFFFF;
 
-  --color-success: #10B981; /* Emerald 500 */
+  --color-success: #16A34A; /* Green 600 - Success */
   --color-success-foreground: #FFFFFF;
   
-  --color-info: #3B82F6; /* Blue 500 */
+  --color-info: #2563EB; /* Blue 600 - Info */
   --color-info-foreground: #FFFFFF;
 
   --color-border: #E2E8F0; /* Slate 200 */

@@ -10,6 +10,8 @@ import { Search, UserPlus, QrCode, PlusCircle, CheckCircle, ShieldAlert, X } fro
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "../components/ui/dialog";
 import { supabase } from "../lib/supabase";
 import { QRCodeSVG } from "qrcode.react";
+import { Skeleton } from "../components/ui/skeleton";
+import { motion, AnimatePresence } from "motion/react";
 
 interface Designation {
   id: string;
@@ -33,6 +35,21 @@ export function Staff() {
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const [designations, setDesignations] = useState<Designation[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.05
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 10 },
+    show: { opacity: 1, y: 0 }
+  };
 
   // Dialogs
   const [isNewStaffOpen, setIsNewStaffOpen] = useState(false);
@@ -552,59 +569,75 @@ export function Staff() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {loading ? (
-                <TableRow>
-                   <TableCell colSpan={5} className="text-center py-12 text-muted-foreground animate-pulse font-medium">Booting roster schema...</TableCell>
-                </TableRow>
-              ) : filteredStaff.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center py-12">
-                    <p className="text-muted-foreground/75 font-medium">No personnel found.</p>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filteredStaff.map((staff) => (
-                  <TableRow 
-                    key={staff.id} 
-                    className="group hover:bg-muted/10 cursor-pointer"
-                    onClick={() => navigate(`/staff/${staff.id}`)}
-                  >
-                    <TableCell className="font-mono text-xs font-bold text-muted-foreground/75 w-[120px]">{staff.id}</TableCell>
-                    <TableCell>
-                      <div className="font-bold text-sm">{staff.first_name} {staff.last_name}</div>
-                      <div className="text-[10px] text-muted-foreground">{staff.phone} • {staff.email || 'No email provided'}</div>
-                    </TableCell>
-                    <TableCell>
-                       <div className="flex flex-wrap gap-1">
-                          {staff.designations.length === 0 ? (
-                             <span className="text-[10px] italic text-muted-foreground/50">Unassigned Pipeline</span>
-                          ) : (
-                             staff.designations.map(d => <Badge key={d} variant="outline" className="text-[10px] font-bold border-primary/20 text-foreground shadow-sm bg-background/50 h-5 px-1.5">{d}</Badge>)
-                          )}
-                       </div>
-                    </TableCell>
-                    <TableCell>
-                       <Badge variant={staff.status === 'Active' ? 'success' : 'secondary'} className="text-[10px] uppercase font-bold px-1.5 h-5 shadow-none pb-[2px]">
-                         {staff.status}
-                       </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                       <Button 
-                         variant="ghost" 
-                         size="sm" 
-                         className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground opacity-50 group-hover:opacity-100 transition-opacity"
-                         onClick={(e) => { 
-                           e.stopPropagation();
-                           setSelectedStaff(staff); 
-                           setIsQrViewOpen(true); 
-                         }}
-                       >
-                         <QrCode className="h-4 w-4" />
-                       </Button>
+              <AnimatePresence mode="popLayout" initial={false}>
+                {loading ? (
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <TableRow key={i}>
+                      <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                      <TableCell>
+                        <Skeleton className="h-4 w-32 mb-1" />
+                        <Skeleton className="h-3 w-48" />
+                      </TableCell>
+                      <TableCell><div className="flex gap-1"><Skeleton className="h-5 w-20" /><Skeleton className="h-5 w-16" /></div></TableCell>
+                      <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+                      <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto rounded-md" /></TableCell>
+                    </TableRow>
+                  ))
+                ) : filteredStaff.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-12">
+                      <p className="text-muted-foreground/75 font-medium">No personnel found.</p>
                     </TableCell>
                   </TableRow>
-                ))
-              )}
+                ) : (
+                  filteredStaff.map((staff, idx) => (
+                    <motion.tr 
+                      key={staff.id} 
+                      variants={itemVariants}
+                      initial="hidden"
+                      animate="show"
+                      exit="hidden"
+                      layout
+                      className="group hover:bg-muted/10 cursor-pointer border-b border-slate-100"
+                      onClick={() => navigate(`/staff/${staff.id}`)}
+                    >
+                      <TableCell className="font-mono text-xs font-bold text-muted-foreground/75 w-[120px]">{staff.id}</TableCell>
+                      <TableCell>
+                        <div className="font-bold text-sm">{staff.first_name} {staff.last_name}</div>
+                        <div className="text-[10px] text-muted-foreground">{staff.phone} • {staff.email || 'No email provided'}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                            {staff.designations.length === 0 ? (
+                              <span className="text-[10px] italic text-muted-foreground/50">Unassigned Pipeline</span>
+                            ) : (
+                              staff.designations.map(d => <Badge key={d} variant="outline" className="text-[10px] font-bold border-primary/20 text-foreground shadow-sm bg-background/50 h-5 px-1.5">{d}</Badge>)
+                            )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={staff.status === 'Active' ? 'success' : 'secondary'} className="text-[10px] uppercase font-bold px-1.5 h-5 shadow-none pb-[2px]">
+                          {staff.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground opacity-50 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => { 
+                            e.stopPropagation();
+                            setSelectedStaff(staff); 
+                            setIsQrViewOpen(true); 
+                          }}
+                        >
+                          <QrCode className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </motion.tr>
+                  ))
+                )}
+              </AnimatePresence>
             </TableBody>
           </Table>
         </CardContent>

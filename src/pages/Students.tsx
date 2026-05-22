@@ -12,6 +12,7 @@ import { api } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import { Student } from "../types";
 import Papa from "papaparse";
+import { motion, AnimatePresence } from "motion/react";
 import { AddStudentWizard } from "../components/AddStudentWizard";
 
 export function Students() {
@@ -42,6 +43,21 @@ export function Students() {
   useEffect(() => {
     loadStudents();
   }, []);
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.05
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 10 },
+    show: { opacity: 1, y: 0 }
+  };
 
   // Advanced Filtering Logic
   const filteredStudents = students.filter(s => {
@@ -284,69 +300,83 @@ export function Students() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {loading ? (
-                <TableSkeleton />
-              ) : paginatedStudents.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="h-64 text-center">
-                    <div className="flex flex-col items-center justify-center space-y-2 opacity-50">
-                      <UserPlus className="h-10 w-10 mb-2" />
-                      <p className="text-lg font-medium">No results found</p>
-                      <p className="text-sm">Try adjusting your filters or search terms</p>
-                      <Button variant="link" onClick={() => { setSearch(""); setGradeFilter("All"); setStatusFilter("All"); }}>
-                        Clear all filters
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                paginatedStudents.map((student) => (
-                  <TableRow key={student.id} className="group transition-colors hover:bg-muted/50">
-                    <TableCell>
-                      <Checkbox 
-                        checked={selectedStudents.includes(student.id)}
-                        onCheckedChange={(c) => handleSelectStudent(student.id, c as boolean)}
-                      />
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">{student.student_id || student.id.slice(0, 8)}</TableCell>
-                    <TableCell className="font-medium">
-                      <button 
-                        onClick={() => navigate(`/students/${student.id}`)}
-                        className="hover:text-primary transition-colors hover:underline cursor-pointer text-left"
+              <AnimatePresence mode="popLayout" initial={false}>
+                {loading ? (
+                  <TableSkeleton />
+                ) : paginatedStudents.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-64 text-center">
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="flex flex-col items-center justify-center space-y-2 opacity-50"
                       >
-                        {student.name}
-                      </button>
-                    </TableCell>
-                    <TableCell>{student.grade}</TableCell>
-                    <TableCell className="text-sm font-mono">{student.contact}</TableCell>
-                    <TableCell>
-                      <Badge 
-                        variant={student.status === "Active" ? "success" : student.status === "Graduated" ? "default" : "secondary"}
-                        className="rounded-full px-2"
-                      >
-                        {student.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className={`h-8 w-8 ${student.status === 'Active' ? 'text-emerald-500' : 'text-blue-500'}`}
-                        onClick={() => toggleStudentStatus(student)}
-                        title={student.status === 'Active' ? "Mark as Graduated" : "Re-activate"}
-                      >
-                        {student.status === 'Active' ? <GraduationCap className="h-4 w-4" /> : <ArrowUpCircle className="h-4 w-4" />}
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(`/students/${student.id}`)}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-primary">
-                        <Edit className="h-4 w-4" />
-                      </Button>
+                        <UserPlus className="h-10 w-10 mb-2" />
+                        <p className="text-lg font-medium">No results found</p>
+                        <p className="text-sm">Try adjusting your filters or search terms</p>
+                        <Button variant="link" onClick={() => { setSearch(""); setGradeFilter("All"); setStatusFilter("All"); }}>
+                          Clear all filters
+                        </Button>
+                      </motion.div>
                     </TableCell>
                   </TableRow>
-                ))
-              )}
+                ) : (
+                  paginatedStudents.map((student, idx) => (
+                    <motion.tr 
+                      key={student.id}
+                      variants={itemVariants}
+                      initial="hidden"
+                      animate="show"
+                      exit="hidden"
+                      layout
+                      className="group transition-colors hover:bg-muted/50 border-b border-slate-100"
+                    >
+                      <TableCell>
+                        <Checkbox 
+                          checked={selectedStudents.includes(student.id)}
+                          onCheckedChange={(c) => handleSelectStudent(student.id, c as boolean)}
+                        />
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{student.student_id || student.id.slice(0, 8)}</TableCell>
+                      <TableCell className="font-medium">
+                        <button 
+                          onClick={() => navigate(`/students/${student.id}`)}
+                          className="hover:text-primary transition-colors hover:underline cursor-pointer text-left"
+                        >
+                          {student.name}
+                        </button>
+                      </TableCell>
+                      <TableCell>{student.grade}</TableCell>
+                      <TableCell className="text-sm font-mono">{student.contact}</TableCell>
+                      <TableCell>
+                        <Badge 
+                          variant={student.status === "Active" ? "success" : student.status === "Graduated" ? "default" : "secondary"}
+                          className="rounded-full px-2"
+                        >
+                          {student.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className={`h-8 w-8 ${student.status === 'Active' ? 'text-emerald-500' : 'text-blue-500'}`}
+                          onClick={() => toggleStudentStatus(student)}
+                          title={student.status === 'Active' ? "Mark as Graduated" : "Re-activate"}
+                        >
+                          {student.status === 'Active' ? <GraduationCap className="h-4 w-4" /> : <ArrowUpCircle className="h-4 w-4" />}
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(`/students/${student.id}`)}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-primary">
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </motion.tr>
+                  ))
+                )}
+              </AnimatePresence>
             </TableBody>
           </Table>
           

@@ -154,6 +154,7 @@ export function StudentProfile() {
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
   const [uploadCategory, setUploadCategory] = useState<'Academic' | 'Legal' | 'ID Proof'>('Academic');
+  const [deletingDocument, setDeletingDocument] = useState<string | null>(null);
   const [currentViewDate, setCurrentViewDate] = useState(new Date());
 
   const fetchAttendance = useCallback(async () => {
@@ -693,6 +694,7 @@ export function StudentProfile() {
     if (!id || !supabase) return;
     if (!confirm(`Are you sure you want to delete "${docName}"?`)) return;
 
+    setDeletingDocument(docName);
     try {
       const { error } = await supabase.storage
         .from('student-documents')
@@ -706,6 +708,8 @@ export function StudentProfile() {
       }
     } catch (err) {
       console.error("Delete operation failed:", err);
+    } finally {
+      setDeletingDocument(null);
     }
   };
 
@@ -757,15 +761,57 @@ export function StudentProfile() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center space-x-4">
-          <Skeleton className="h-10 w-24" />
-          <div className="space-y-2">
-            <Skeleton className="h-8 w-64" />
-            <Skeleton className="h-4 w-32" />
+      <div className="space-y-6 max-w-6xl mx-auto pb-20">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-10 w-40" />
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-32" />
+            <Skeleton className="h-9 w-32" />
           </div>
         </div>
-        <Skeleton className="h-[500px] w-full" />
+
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 pb-6 border-b">
+          <div className="flex items-center gap-6">
+            <Skeleton className="h-24 w-24 rounded-2xl" />
+            <div className="space-y-2">
+              <Skeleton className="h-10 w-64" />
+              <div className="flex gap-3">
+                <Skeleton className="h-6 w-20" />
+                <Skeleton className="h-6 w-16" />
+                <Skeleton className="h-6 w-24" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="w-full">
+          <div className="flex gap-6 border-b mb-6 overflow-x-auto">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-28 rounded-none border-b-2 border-transparent" />
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-3">
+              <Card>
+                <CardHeader>
+                  <Skeleton className="h-6 w-48 mb-2" />
+                  <Skeleton className="h-4 w-64" />
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <div key={i} className="space-y-2">
+                        <Skeleton className="h-3 w-20" />
+                        <Skeleton className="h-10 w-full" />
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1240,7 +1286,7 @@ export function StudentProfile() {
               <Card className="md:col-span-1 bg-primary/5 border-primary/20">
                 <CardHeader>
                   <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                    <div className="h-2 w-2 rounded-full bg-success animate-pulse"></div>
                     <CardTitle className="text-sm">Real-time Attendance</CardTitle>
                   </div>
                   <CardDescription className="text-[10px]">Changes sync instantly to the cloud</CardDescription>
@@ -1248,10 +1294,10 @@ export function StudentProfile() {
                 <CardContent className="space-y-4">
                   <div className="flex flex-col gap-2">
                     {[
-                      { s: 'Present' as const, i: CheckCircle2, colors: 'border-emerald-500/30 hover:bg-emerald-500/10 text-emerald-600' },
+                      { s: 'Present' as const, i: CheckCircle2, colors: 'border-success/30 hover:bg-success/10 text-success' },
                       { s: 'Absent' as const, i: AlertCircle, colors: 'border-destructive/30 hover:bg-destructive/10 text-destructive' },
-                      { s: 'Late' as const, i: Clock, colors: 'border-yellow-500/30 hover:bg-yellow-500/10 text-yellow-600' },
-                      { s: 'Excused' as const, i: FileText, colors: 'border-blue-500/30 hover:bg-blue-500/10 text-blue-600' },
+                      { s: 'Late' as const, i: Clock, colors: 'border-warning/30 hover:bg-warning/10 text-warning' },
+                      { s: 'Excused' as const, i: FileText, colors: 'border-info/30 hover:bg-info/10 text-info' },
                     ].map((btn) => (
                       <Button 
                         key={btn.s}
@@ -1270,7 +1316,7 @@ export function StudentProfile() {
                         {attendance.slice(0, 3).map((a, i) => (
                           <div key={i} className="flex justify-between items-center bg-background/50 p-1.5 rounded border border-border/50">
                             <span className="opacity-70">{a.date.split('-').slice(1).join('/')}</span>
-                            <span className={`font-bold ${a.status === 'Present' ? 'text-emerald-500' : 'text-primary'}`}>{a.status}</span>
+                            <span className={`font-bold ${a.status === 'Present' ? 'text-success' : 'text-primary'}`}>{a.status}</span>
                           </div>
                         ))}
                      </div>
@@ -1318,9 +1364,9 @@ export function StudentProfile() {
                       <CardDescription>Daily engagement tracked in the cloud</CardDescription>
                    </div>
                    <div className="flex items-center gap-4 text-[10px] uppercase font-bold tracking-tighter">
-                      <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Present</div>
+                      <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-success"></div> Present</div>
                       <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-destructive"></div> Absent</div>
-                      <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-yellow-500"></div> Late</div>
+                      <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-warning"></div> Late</div>
                       <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-purple-500"></div> Holiday</div>
                    </div>
                 </CardHeader>
@@ -1360,11 +1406,11 @@ export function StudentProfile() {
                                 }
                               }}
                               className={`aspect-square rounded-lg flex flex-col items-center justify-center border border-muted/20 relative group transition-all hover:scale-110 active:scale-95
-                                ${status === 'Present' ? 'bg-emerald-500/10 border-emerald-500/30' : 
+                                ${status === 'Present' ? 'bg-success/10 border-success/30' : 
                                   status === 'Absent' ? 'bg-destructive/10 border-destructive/30' : 
-                                  status === 'Late' ? 'bg-yellow-500/10 border-yellow-500/30' : 
+                                  status === 'Late' ? 'bg-warning/10 border-warning/30' : 
                                   status === 'Holiday' ? 'bg-purple-500/10 border-purple-500/30' : 
-                                  status === 'Excused' ? 'bg-blue-500/10 border-blue-500/30' : 'bg-muted/5'}`}
+                                  status === 'Excused' ? 'bg-info/10 border-info/30' : 'bg-muted/5'}`}
                             >
                                <span className="text-[10px] font-mono opacity-50">{dayNum}</span>
                                {status && (
@@ -1417,11 +1463,11 @@ export function StudentProfile() {
                         <Bar dataKey="value">
                            {
                              [
-                               { name: 'Present', color: '#10b981' },
-                               { name: 'Absent', color: '#ef4444' },
-                               { name: 'Late', color: '#f59e0b' },
-                               { name: 'Holiday', color: '#8b5cf6' },
-                               { name: 'Excused', color: '#3b82f6' }
+                               { name: 'Present', color: '#16A34A' },
+                               { name: 'Absent', color: '#DC2626' },
+                               { name: 'Late', color: '#D97706' },
+                               { name: 'Holiday', color: '#7C3AED' },
+                               { name: 'Excused', color: '#2563EB' }
                              ].map((entry, index) => (
                                <Cell key={`cell-${index}`} fill={entry.color} />
                              ))
@@ -1449,7 +1495,7 @@ export function StudentProfile() {
                     </Button>
                  </div>
                  <CardContent className="p-6 flex items-center gap-4">
-                    <div className={`h-12 w-12 rounded-full flex items-center justify-center ${stats.consecutiveAbsences >= 3 ? 'bg-destructive/10 text-destructive' : 'bg-emerald-500/10 text-emerald-600'}`}>
+                    <div className={`h-12 w-12 rounded-full flex items-center justify-center ${stats.consecutiveAbsences >= 3 ? 'bg-destructive/10 text-destructive' : 'bg-success/10 text-success'}`}>
                        {stats.consecutiveAbsences >= 3 ? <AlertCircle className="h-6 w-6" /> : <CheckCircle2 className="h-6 w-6" />}
                     </div>
                     <div>
@@ -1491,7 +1537,7 @@ export function StudentProfile() {
                     {remarks.map(rem => (
                        <div key={rem.id} className="relative pl-12">
                           <div className={`absolute left-0 w-10 h-10 rounded-full flex items-center justify-center border-4 border-background shadow-sm
-                            ${rem.category === 'Academic' ? 'bg-emerald-500 text-foreground' : 'bg-blue-500 text-foreground'}`}>
+                            ${rem.category === 'Academic' ? 'bg-success text-foreground' : 'bg-info text-foreground'}`}>
                              {rem.category === 'Academic' ? <Award className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
                           </div>
                           <div className="bg-muted/30 p-4 rounded-xl border border-muted/20">
@@ -1647,7 +1693,7 @@ export function StudentProfile() {
                           ) : (
                             computedInvoices.map((inst, i) => (
                             <div key={inst.id} className="flex items-start gap-4 group/item pl-1">
-                               <div className={`h-6 w-6 rounded-full flex items-center justify-center shrink-0 z-10 border-2 transition-all group-hover/item:scale-110 ${inst.computedStatus === 'Paid' ? 'bg-background border-emerald-500 text-emerald-600 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : inst.computedStatus === 'Overdue' ? 'bg-background border-red-500 text-red-500 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : inst.computedStatus === 'Partial' ? 'bg-background border-yellow-500 text-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.2)]' : 'bg-background border-muted text-muted-foreground'}`}>
+                               <div className={`h-6 w-6 rounded-full flex items-center justify-center shrink-0 z-10 border-2 transition-all group-hover/item:scale-110 ${inst.computedStatus === 'Paid' ? 'bg-background border-success text-success shadow-[0_0_10px_rgba(22,163,74,0.2)]' : inst.computedStatus === 'Overdue' ? 'bg-background border-destructive text-destructive shadow-[0_0_10px_rgba(220,38,38,0.2)]' : inst.computedStatus === 'Partial' ? 'bg-background border-warning text-warning shadow-[0_0_10px_rgba(217,119,6,0.2)]' : 'bg-background border-muted text-muted-foreground'}`}>
                                   {inst.computedStatus === 'Paid' ? <CheckCircle2 className="h-3 w-3" /> : (inst.computedStatus === 'Overdue' || inst.computedStatus === 'Partial') ? <AlertCircle className="h-3 w-3" /> : <div className="h-1.5 w-1.5 bg-current rounded-full" />}
                                </div>
                                <div className="flex-1 pb-5 border-b border-muted/10 last:border-0 last:pb-0">
@@ -1656,20 +1702,20 @@ export function StudentProfile() {
                                      <div className="text-right">
                                          <div className="text-sm font-black font-mono">₹{inst.totalAmount.toLocaleString()}</div>
                                          {inst.computedStatus === 'Partial' && (
-                                            <div className="text-[9px] font-black text-red-500 font-mono">Due: ₹{(inst.amountDue || 0).toLocaleString()}</div>
+                                            <div className="text-[9px] font-black text-destructive font-mono">Due: ₹{(inst.amountDue || 0).toLocaleString()}</div>
                                          )}
                                       </div>
                                   </div>
                                   
                                   {inst.computedStatus === 'Partial' && (
                                      <div className="w-full bg-muted/40 rounded-full h-1 my-2 overflow-hidden">
-                                        <div className="bg-yellow-500 h-1 rounded-full" style={{ width: `${(inst.amountPaid! / inst.totalAmount) * 100}%` }}></div>
+                                        <div className="bg-warning h-1 rounded-full" style={{ width: `${(inst.amountPaid! / inst.totalAmount) * 100}%` }}></div>
                                      </div>
                                   )}
 
                                   <div className="flex justify-between items-center">
                                      <div className="flex items-center gap-2">
-                                        <span className={`text-[9px] uppercase font-black tracking-tighter px-1.5 py-0.5 rounded ${inst.computedStatus === 'Paid' ? 'bg-emerald-500/10 text-emerald-600' : inst.computedStatus === 'Overdue' ? 'bg-red-500/10 text-red-500' : inst.computedStatus === 'Partial' ? 'bg-yellow-500/10 text-yellow-600' : 'bg-muted/50 text-muted-foreground'}`}>{inst.computedStatus}</span>
+                                        <span className={`text-[9px] uppercase font-black tracking-tighter px-1.5 py-0.5 rounded ${inst.computedStatus === 'Paid' ? 'bg-success/10 text-success' : inst.computedStatus === 'Overdue' ? 'bg-destructive/10 text-destructive' : inst.computedStatus === 'Partial' ? 'bg-warning/10 text-warning' : 'bg-muted/50 text-muted-foreground'}`}>{inst.computedStatus}</span>
                                         <span className={`text-[8px] font-bold uppercase tracking-widest ${inst.type === 'Incidental' ? 'text-indigo-400' : 'opacity-40'}`}>{inst.type}</span>
                                      </div>
                                      <span className="text-[9px] opacity-60 font-mono italic">Due {new Date(inst.dueDate + 'T12:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
@@ -1891,8 +1937,9 @@ export function StudentProfile() {
                                      size="icon" 
                                      className="h-8 w-8 rounded-lg hover:bg-destructive/10 hover:text-destructive"
                                      onClick={() => handleDeleteDocument(doc.name)}
+                                     disabled={deletingDocument === doc.name}
                                    >
-                                      <Trash2 className="h-4 w-4" />
+                                      {deletingDocument === doc.name ? <div className="h-4 w-4 border-2 border-current border-t-transparent animate-spin rounded-full" /> : <Trash2 className="h-4 w-4" />}
                                    </Button>
                                 </div>
                              </div>

@@ -12,6 +12,7 @@ import { QRScanner } from "../components/QRScanner";
 import { HolidayManager } from "../components/HolidayManager";
 import { supabase } from "../lib/supabase";
 import { Button } from "../components/ui/button";
+import { Skeleton } from "../components/ui/skeleton";
 import { motion, AnimatePresence } from "motion/react";
 import { initAuth, googleSignIn, getAccessToken, logout as googleLogout } from "../lib/auth";
 import { User } from "firebase/auth";
@@ -252,13 +253,135 @@ export function Dashboard() {
     loadDashboardData();
   }, []);
 
+  const itemVariants = {
+    hidden: { opacity: 0, y: 15, scale: 0.98 },
+    show: { 
+      opacity: 1, 
+      y: 0, 
+      scale: 1,
+      transition: {
+        type: "spring",
+        stiffness: 260,
+        damping: 20
+      }
+    }
+  };
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.08,
+        delayChildren: 0.1
+      }
+    }
+  };
+
   if (loading) {
-    return <div className="flex items-center justify-center h-screen">Loading dashboard...</div>;
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+          <div className="flex gap-3">
+            <Skeleton className="h-10 w-32" />
+            <Skeleton className="h-10 w-32" />
+          </div>
+        </div>
+        
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="border-none shadow-sm shadow-slate-200/50">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-4 rounded-full" />
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Skeleton className="h-8 w-16" />
+                <Skeleton className="h-4 w-32" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-4">
+           <Card className="border-none shadow-sm shadow-slate-200/50">
+             <CardHeader>
+               <Skeleton className="h-6 w-48" />
+             </CardHeader>
+             <CardContent className="flex gap-4">
+               {Array.from({ length: 3 }).map((_, i) => (
+                 <Skeleton key={i} className="h-32 flex-1 rounded-xl" />
+               ))}
+             </CardContent>
+           </Card>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+          <Card className="col-span-4 border-none shadow-sm shadow-slate-200/50 h-[450px]">
+             <CardHeader>
+               <Skeleton className="h-6 w-48" />
+             </CardHeader>
+             <CardContent className="h-[350px]">
+                <Skeleton className="h-full w-full rounded-xl" />
+             </CardContent>
+          </Card>
+          <Card className="col-span-3 border-none shadow-sm shadow-slate-200/50">
+             <CardHeader>
+               <Skeleton className="h-6 w-32" />
+             </CardHeader>
+             <CardContent>
+                <div className="space-y-4">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="flex justify-between items-center py-2 border-b border-slate-50 last:border-0">
+                      <div className="space-y-1">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-3 w-20" />
+                      </div>
+                      <Skeleton className="h-4 w-12" />
+                    </div>
+                  ))}
+                </div>
+             </CardContent>
+          </Card>
+        </div>
+
+        <Card className="border-none shadow-sm shadow-slate-200/50 bg-slate-50/50">
+          <CardHeader>
+            <Skeleton className="h-4 w-40" />
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <Skeleton className="h-3 w-3 rounded-full" />
+                  <div className="space-y-1">
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-2 w-24" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <motion.div 
+      variants={containerVariants}
+      initial="hidden"
+      animate="show"
+      className="space-y-6"
+    >
+      <motion.div 
+        variants={itemVariants}
+        className="flex flex-col md:flex-row md:items-center justify-between gap-4"
+      >
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Dashboard Overview</h2>
           <p className="text-xs text-muted-foreground">Admin control panel & front-desk monitoring</p>
@@ -266,197 +389,233 @@ export function Dashboard() {
 
         <div className="flex items-center gap-3">
           {needsAuth ? (
-            <Button variant="outline" onClick={handleGoogleLogin} className="flex gap-2 items-center">
-              <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-4 h-4">
-                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                <path fill="none" d="M0 0h48v48H0z"></path>
-              </svg>
-              Sign in Calendar
-            </Button>
+            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+              <Button variant="outline" onClick={handleGoogleLogin} className="flex gap-2 items-center">
+                <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-4 h-4">
+                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                  <path fill="none" d="M0 0h48v48H0z"></path>
+                </svg>
+                Sign in Calendar
+              </Button>
+            </motion.div>
           ) : (
-             <Button variant="outline" onClick={handleSyncToCalendar} disabled={isSyncing} className="gap-2 text-indigo-600 border-indigo-200 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-700">
-               <Calendar className="h-4 w-4" />
-               {isSyncing ? "Syncing..." : "Sync Calendar"}
-             </Button>
+            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+              <Button variant="outline" onClick={handleSyncToCalendar} disabled={isSyncing} className="gap-2 text-indigo-600 border-indigo-200 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-700">
+                <Calendar className="h-4 w-4" />
+                {isSyncing ? "Syncing..." : "Sync Calendar"}
+              </Button>
+            </motion.div>
           )}
 
           <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-primary/90 hover:bg-primary shadow-lg shadow-primary/20 gap-2 border-primary/20 border-b-4 hover:translate-y-[1px] active:border-b-0 active:translate-y-[4px] transition-all">
-                <QrCode className="h-4 w-4" />
-                Scan Attendance
-              </Button>
+              <motion.div whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }}>
+                <Button className="bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 gap-2 transition-all">
+                  <QrCode className="h-4 w-4" />
+                  Scan Attendance
+                </Button>
+              </motion.div>
             </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <QrCode className="h-5 w-5 text-primary" />
-                Front Desk Scanner
-              </DialogTitle>
-              <DialogDescription>
-                Point the Student or Staff ID card QR code at the camera, or scan using a USB barcode scanner.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="mt-4 flex flex-col items-center">
-               {isScannerOpen && !scanResult && (
-                 <>
-                   <QRScanner 
-                      onScan={handleScanSuccess} 
-                      onClose={() => setIsScannerOpen(false)} 
-                   />
-                   <div className="w-full mt-6">
-                     <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 text-center">OR SCAN WITH BARCODE / TYPE ID</p>
-                     <form onSubmit={(e) => {
-                        e.preventDefault();
-                        const val = new FormData(e.currentTarget).get('manual_id') as string;
-                        if (val) handleScanSuccess(val);
-                        e.currentTarget.reset();
-                     }}>
-                       <input 
-                         name="manual_id"
-                         autoFocus
-                         placeholder="Enter ID and press Enter..."
-                         className="w-full bg-background border border-input rounded-md h-10 px-3 py-2 text-sm text-center"
-                       />
-                     </form>
-                   </div>
-                 </>
-               )}
-               
-               <AnimatePresence>
-                 {scanResult && (
-                   <motion.div 
-                     initial={{ opacity: 0, y: 10 }}
-                     animate={{ opacity: 1, y: 0 }}
-                     exit={{ opacity: 0, y: -10 }}
-                     className={`mt-4 p-4 rounded-xl w-full flex items-center gap-3 border ${
-                       scanResult.includes('Error') || scanResult.includes('Invalid') 
-                         ? 'bg-destructive/10 border-destructive/20 text-destructive' 
-                         : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600'
-                     }`}
-                   >
-                     {scanResult.includes('marked') ? <CheckCircle2 className="h-5 w-5" /> : <X className="h-5 w-5" />}
-                     <span className="text-sm font-bold">{scanResult}</span>
-                   </motion.div>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <QrCode className="h-5 w-5 text-primary" />
+                  Front Desk Scanner
+                </DialogTitle>
+                <DialogDescription>
+                  Point the Student or Staff ID card QR code at the camera, or scan using a USB barcode scanner.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="mt-4 flex flex-col items-center">
+                 {isScannerOpen && !scanResult && (
+                   <>
+                     <QRScanner 
+                        onScan={handleScanSuccess} 
+                        onClose={() => setIsScannerOpen(false)} 
+                     />
+                     <div className="w-full mt-6">
+                       <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 text-center">OR SCAN WITH BARCODE / TYPE ID</p>
+                       <form onSubmit={(e) => {
+                          e.preventDefault();
+                          const val = new FormData(e.currentTarget).get('manual_id') as string;
+                          if (val) handleScanSuccess(val);
+                          e.currentTarget.reset();
+                       }}>
+                         <input 
+                           name="manual_id"
+                           autoFocus
+                           placeholder="Enter ID and press Enter..."
+                           className="w-full bg-background border border-input rounded-md h-10 px-3 py-2 text-sm text-center"
+                         />
+                       </form>
+                     </div>
+                   </>
                  )}
-               </AnimatePresence>
-            </div>
-          </DialogContent>
-        </Dialog>
-      </div>
-      </div>
+                 
+                 <AnimatePresence mode="wait">
+                   {scanResult && (
+                     <motion.div 
+                       initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                       animate={{ opacity: 1, y: 0, scale: 1 }}
+                       exit={{ opacity: 0, scale: 0.95 }}
+                       className={`mt-4 p-4 rounded-xl w-full flex items-center gap-3 border ${
+                         scanResult.includes('Error') || scanResult.includes('Invalid') 
+                           ? 'bg-destructive/10 border-destructive/20 text-destructive' 
+                           : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600'
+                       }`}
+                     >
+                       {scanResult.includes('marked') ? <CheckCircle2 className="h-5 w-5" /> : <X className="h-5 w-5" />}
+                       <span className="text-sm font-bold">{scanResult}</span>
+                     </motion.div>
+                   )}
+                 </AnimatePresence>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </motion.div>
       
       {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Students</CardTitle>
-            <Users className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.students}</div>
-            <p className="text-xs text-muted-foreground">Active in system</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Staff</CardTitle>
-            <UserCog className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.staff}</div>
-            <p className="text-xs text-muted-foreground">Enrolled personnel</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Fees Collected</CardTitle>
-            <IndianRupee className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">₹{stats.fees.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground">Total paid amount</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Resources</CardTitle>
-            <Layers className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.resources}</div>
-            <p className="text-xs text-muted-foreground">Assets tracking</p>
-          </CardContent>
-        </Card>
+        {[
+          { title: "Total Students", value: stats.students, icon: Users, sub: "Active in system" },
+          { title: "Total Staff", value: stats.staff, icon: UserCog, sub: "Enrolled personnel" },
+          { title: "Fees Collected", value: `₹${stats.fees.toLocaleString()}`, icon: IndianRupee, sub: "Total paid amount" },
+          { title: "Total Resources", value: stats.resources, icon: Layers, sub: "Assets tracking" },
+        ].map((kpi, idx) => (
+          <motion.div key={kpi.title} variants={itemVariants} whileHover={{ y: -6, scale: 1.02 }} transition={{ type: "spring", stiffness: 400, damping: 10 }}>
+            <Card className="h-full border-none shadow-sm shadow-slate-200/50 bg-gradient-to-br from-white to-slate-50/50 relative overflow-hidden group">
+              <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -mr-12 -mt-12 transition-all group-hover:scale-150 duration-500 blur-2xl" />
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">{kpi.title}</CardTitle>
+                <kpi.icon className="h-4 w-4 text-primary" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{kpi.value}</div>
+                <p className="text-xs text-muted-foreground">{kpi.sub}</p>
+              </CardContent>
+            </Card>
+          </motion.div>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-4">
+      <motion.div variants={itemVariants} className="grid grid-cols-1 gap-4">
          <HolidayManager />
-      </div>
+      </motion.div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
         {/* Chart */}
-        <Card className="col-span-4">
-          <CardHeader>
-            <CardTitle>Revenue vs. Expenses (Last 6 Months)</CardTitle>
-          </CardHeader>
-          <CardContent className="pl-2 h-[350px]">
-            {chartData && chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                  <XAxis dataKey="month" stroke="#64748B" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#64748B" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `₹${value/1000}k`} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#FFFFFF', borderColor: '#E2E8F0', color: '#0F172A', borderRadius: '8px' }}
-                    itemStyle={{ color: '#10B981' }}
-                  />
-                  <Line type="monotone" dataKey="revenue" stroke="#3B82F6" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                  <Line type="monotone" dataKey="expenses" stroke="#10B981" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-muted-foreground">No financial data to display yet.</div>
-            )}
-          </CardContent>
-        </Card>
+        <motion.div variants={itemVariants} className="col-span-4 transition-all">
+          <Card className="h-full border-none shadow-sm shadow-slate-200/50 overflow-hidden">
+            <CardHeader>
+              <CardTitle>Revenue vs. Expenses (Last 6 Months)</CardTitle>
+            </CardHeader>
+            <CardContent className="pl-2 h-[350px]">
+              {chartData && chartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
+                    <XAxis dataKey="month" stroke="#64748B" fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis stroke="#64748B" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `₹${value/1000}k`} />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#FFFFFF', borderColor: '#E2E8F0', color: '#0F172A', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
+                      itemStyle={{ color: '#10B981' }}
+                    />
+                    <Line type="monotone" dataKey="revenue" stroke="#3B82F6" strokeWidth={4} dot={{ r: 4, strokeWidth: 2, fill: 'white' }} activeDot={{ r: 6 }} />
+                    <Line type="monotone" dataKey="expenses" stroke="#10B981" strokeWidth={4} dot={{ r: 4, strokeWidth: 2, fill: 'white' }} activeDot={{ r: 6 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground">No financial data to display yet.</div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
 
         {/* Activity Log */}
-        <Card className="col-span-3">
-          <CardHeader>
-            <CardTitle>Recent Activity Log</CardTitle>
+        <motion.div variants={itemVariants} className="col-span-3">
+          <Card className="h-full border-none shadow-sm shadow-slate-200/50">
+            <CardHeader>
+              <CardTitle>Recent Activity Log</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-slate-100 hover:bg-transparent">
+                    <TableHead className="font-bold">Action</TableHead>
+                    <TableHead className="font-bold">User</TableHead>
+                    <TableHead className="text-right font-bold">Time</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(activityLogs || []).length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-center py-8 text-muted-foreground text-xs">No recent activity.</TableCell>
+                    </TableRow>
+                  ) : (
+                    activityLogs.map((log, idx) => (
+                      <motion.tr 
+                        key={log.id}
+                        initial={{ opacity: 0, x: 10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.3 + idx * 0.05 }}
+                        className="group border-slate-100 hover:bg-slate-50 transition-colors"
+                      >
+                        <TableCell className="font-medium text-xs group-hover:text-primary transition-colors">{log.action}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{log.user}</TableCell>
+                        <TableCell className="text-right text-xs whitespace-nowrap text-slate-400">{log.time}</TableCell>
+                      </motion.tr>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+      {/* Status Legend Section */}
+      <motion.div variants={itemVariants} className="pt-4">
+        <Card className="border-none shadow-sm shadow-slate-200/50 bg-slate-50/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-bold uppercase tracking-wider text-slate-500">System Status Indicators</CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Action</TableHead>
-                  <TableHead>User</TableHead>
-                  <TableHead className="text-right">Time</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(activityLogs || []).length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={3} className="text-center py-8 text-muted-foreground text-xs">No recent activity.</TableCell>
-                  </TableRow>
-                ) : (
-                  activityLogs.map(log => (
-                    <TableRow key={log.id}>
-                      <TableCell className="font-medium text-xs">{log.action}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{log.user}</TableCell>
-                      <TableCell className="text-right text-xs whitespace-nowrap">{log.time}</TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="flex items-center gap-3">
+                <div className="h-3 w-3 rounded-full bg-success shadow-[0_0_8px_rgba(22,163,74,0.4)]" />
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold text-slate-700 leading-none mb-1">Success</span>
+                  <span className="text-[10px] text-slate-500 leading-none">Paid fees, Completed attendance</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="h-3 w-3 rounded-full bg-warning shadow-[0_0_8px_rgba(217,119,6,0.4)]" />
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold text-slate-700 leading-none mb-1">Warning</span>
+                  <span className="text-[10px] text-slate-500 leading-none">Pending actions, Late arrivals</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="h-3 w-3 rounded-full bg-destructive shadow-[0_0_8px_rgba(220,38,38,0.4)]" />
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold text-slate-700 leading-none mb-1">Danger</span>
+                  <span className="text-[10px] text-slate-500 leading-none">Overdue fees, Absentees, System errors</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="h-3 w-3 rounded-full bg-info shadow-[0_0_8px_rgba(37,99,235,0.4)]" />
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold text-slate-700 leading-none mb-1">Information</span>
+                  <span className="text-[10px] text-slate-500 leading-none">Batch updates, General notices</span>
+                </div>
+              </div>
+            </div>
           </CardContent>
         </Card>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

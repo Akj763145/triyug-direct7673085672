@@ -39,6 +39,7 @@ import {
   DialogDescription,
   DialogFooter
 } from '../components/ui/dialog';
+import { Skeleton } from '../components/ui/skeleton';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -99,6 +100,21 @@ export default function Batches() {
   const [qrLoading, setQrLoading] = useState(false);
   const [qrPayload, setQrPayload] = useState<any>(null);
   const [simulatingWebhook, setSimulatingWebhook] = useState(false);
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.05
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 10 },
+    show: { opacity: 1, y: 0 }
+  };
 
   useEffect(() => {
     fetchBatches();
@@ -710,29 +726,35 @@ export default function Batches() {
                     </tr>
                   </thead>
                   <tbody>
-                    {loading ? (
-                      Array.from({ length: 3 }).map((_, i) => (
-                        <tr key={i} className="animate-pulse border-b border-muted/10 h-14">
-                          <td className="px-4 py-2"><div className="h-4 bg-muted w-3/4 rounded"></div></td>
-                          <td className="px-4 py-2"><div className="h-4 bg-muted w-1/2 rounded"></div></td>
-                          <td className="px-4 py-2"><div className="h-4 bg-muted w-1/3 mx-auto rounded"></div></td>
-                          <td className="px-4 py-2"><div className="h-4 bg-muted w-1/2 ml-auto rounded"></div></td>
+                    <AnimatePresence mode="popLayout" initial={false}>
+                      {loading ? (
+                        Array.from({ length: 4 }).map((_, i) => (
+                          <tr key={i} className="animate-pulse border-b border-muted/10 h-16">
+                            <td className="px-4 py-2"><Skeleton className="h-4 w-40 mb-1" /><Skeleton className="h-3 w-20" /></td>
+                            <td className="px-4 py-2"><Skeleton className="h-4 w-24 mb-1" /><Skeleton className="h-3 w-16" /></td>
+                            <td className="px-4 py-2"><div className="mx-auto w-20"><Skeleton className="h-7 w-full rounded-lg" /></div></td>
+                            <td className="px-4 py-2 text-right"><div className="flex justify-end gap-2"><Skeleton className="h-8 w-16 rounded-md" /><Skeleton className="h-8 w-16 rounded-md" /><Skeleton className="h-8 w-8 rounded-md" /></div></td>
+                          </tr>
+                        ))
+                      ) : filteredBatches.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="py-12 text-center text-muted-foreground">
+                            <BookOpen className="h-9 w-9 mx-auto opacity-40 mb-3" />
+                            <h4 className="font-bold">No academic batches indexed</h4>
+                            <p className="text-[11px] mt-1">Configure your first batch parameters on the left card panel.</p>
+                          </td>
                         </tr>
-                      ))
-                    ) : filteredBatches.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="py-12 text-center text-muted-foreground">
-                          <BookOpen className="h-9 w-9 mx-auto opacity-40 mb-3" />
-                          <h4 className="font-bold">No academic batches indexed</h4>
-                          <p className="text-[11px] mt-1">Configure your first batch parameters on the left card panel.</p>
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredBatches.map((batch) => (
-                        <tr 
-                          key={batch.id} 
-                          className={`border-b border-muted/15 h-16 hover:bg-muted/10 transition-colors ${selectedSimBatch?.id === batch.id ? 'bg-primary/5' : ''}`}
-                        >
+                      ) : (
+                        filteredBatches.map((batch) => (
+                          <motion.tr 
+                            key={batch.id} 
+                            variants={itemVariants}
+                            initial="hidden"
+                            animate="show"
+                            exit="hidden"
+                            layout
+                            className={`border-b border-muted/15 h-16 hover:bg-muted/10 transition-colors ${selectedSimBatch?.id === batch.id ? 'bg-primary/5' : ''}`}
+                          >
                             <td className="px-4 py-2 max-w-[180px]">
                               <div className="font-black text-foreground text-sm line-clamp-1">{batch.name}</div>
                               <div className="flex items-center gap-1 mt-0.5">
@@ -744,55 +766,56 @@ export default function Batches() {
                                 )}
                               </div>
                             </td>
-                          <td className="px-4 py-2">
-                            <span className="font-black text-foreground font-mono">₹{batch.totalBatchAmount.toLocaleString()}</span>
-                            <div className="mt-0.5">
-                              <Badge variant={batch.status === 'Active' ? 'success' : batch.status === 'Draft' ? 'secondary' : 'destructive'} className="font-semibold text-[9px] px-1.5 py-0">
-                                {batch.status}
-                              </Badge>
-                            </div>
-                          </td>
-                          <td className="px-4 py-2 text-center">
-                            <div className="font-bold flex items-center justify-center gap-1.5 bg-muted/40 py-1 px-2.5 rounded-lg w-fit mx-auto border border-border/40 font-mono text-foreground">
-                              <span>{batch.minInstallments}</span>
-                              <span className="text-muted-foreground">→</span>
-                              <span className="text-primary font-black text-[13px]">{batch.maxInstallments}</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-2 text-right">
-                            <div className="flex justify-end gap-1.5 flex-wrap">
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                onClick={() => handleEditInit(batch)}
-                                className="h-8 text-[11px] font-bold text-muted-foreground hover:text-primary hover:border-primary px-2 gap-1"
-                              >
-                                <Edit className="h-3 w-3" /> Config
-                              </Button>
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                onClick={() => {
-                                  setSelectedSimBatch(batch);
-                                  setSimChosenInst(batch.minInstallments);
-                                }}
-                                className="h-8 text-[11px] font-bold text-primary border-primary/20 bg-primary/5 hover:bg-primary/15 px-2.5 gap-1 shadow-sm"
-                              >
-                                <UserPlus className="h-3 w-3" /> Enroll
-                              </Button>
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                onClick={() => handleDeleteBatch(batch.id)}
-                                className="h-8 text-[11px] text-red-500 hover:bg-red-500/10 hover:text-red-600 px-2.5"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
+                            <td className="px-4 py-2">
+                              <span className="font-black text-foreground font-mono">₹{batch.totalBatchAmount.toLocaleString()}</span>
+                              <div className="mt-0.5">
+                                <Badge variant={batch.status === 'Active' ? 'success' : batch.status === 'Draft' ? 'warning' : 'destructive'} className="font-semibold text-[9px] px-1.5 py-0">
+                                  {batch.status}
+                                </Badge>
+                              </div>
+                            </td>
+                            <td className="px-4 py-2 text-center">
+                              <div className="font-bold flex items-center justify-center gap-1.5 bg-muted/40 py-1 px-2.5 rounded-lg w-fit mx-auto border border-border/40 font-mono text-foreground">
+                                <span>{batch.minInstallments}</span>
+                                <span className="text-muted-foreground">→</span>
+                                <span className="text-primary font-black text-[13px]">{batch.maxInstallments}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-2 text-right">
+                              <div className="flex justify-end gap-1.5 flex-wrap">
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => handleEditInit(batch)}
+                                  className="h-8 text-[11px] font-bold text-muted-foreground hover:text-primary hover:border-primary px-2 gap-1"
+                                >
+                                  <Edit className="h-3 w-3" /> Config
+                                </Button>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => {
+                                    setSelectedSimBatch(batch);
+                                    setSimChosenInst(batch.minInstallments);
+                                  }}
+                                  className="h-8 text-[11px] font-bold text-primary border-primary/20 bg-primary/5 hover:bg-primary/15 px-2.5 gap-1 shadow-sm"
+                                >
+                                  <UserPlus className="h-3 w-3" /> Enroll
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  onClick={() => handleDeleteBatch(batch.id)}
+                                  className="h-8 text-[11px] text-red-500 hover:bg-red-500/10 hover:text-red-600 px-2.5"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </td>
+                          </motion.tr>
+                        ))
+                      )}
+                    </AnimatePresence>
                   </tbody>
                 </table>
               </div>
@@ -918,7 +941,7 @@ export default function Batches() {
                             className={`border bg-background p-4 rounded-xl shadow-xs border-border flex flex-col justify-between h-40 hover:shadow-md transition-shadow relative overflow-hidden group ${inv.status === 'PAID' ? 'ring-2 ring-emerald-500/20' : ''}`}
                           >
                             <div className="absolute top-2 right-2">
-                              <Badge variant={inv.status === 'PAID' ? 'success' : 'destructive'} className="font-black text-[9px] font-mono tracking-widest uppercase">
+                              <Badge variant={inv.status === 'PAID' ? 'success' : inv.status === 'OVERDUE' ? 'destructive' : 'warning'} className="font-black text-[9px] font-mono tracking-widest uppercase">
                                 {inv.status === 'PAID' ? 'PAID' : 'UNPAID'}
                               </Badge>
                             </div>
