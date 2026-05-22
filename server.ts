@@ -2,14 +2,120 @@ import express, { Request, Response, NextFunction } from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { calculateInstallments } from "./src/lib/installmentCalculator";
+import cron from "node-cron";
+import { createClient } from "@supabase/supabase-js";
 
 const PORT = 3000;
 const app = express();
 
 app.use(express.json());
 
+// Initialize Supabase for Server-side maintenance tasks
+const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null;
+
+// ==========================================
+// Part 1: Automated Attendance Integrity Utility
+// ==========================================
+
+async function runAutomatedAttendanceCheck() {
+  if (!supabase) {
+    console.warn("[SYS-ATTENDANCE] Skipping maintenance: Supabase not configured.");
+    return;
+  }
+
+  console.log("[SYS-ATTENDANCE] Starting integrity check for missing records...");
+
+  try {
+    // We check for the last 7 days to ensure catch-up after downtime (Software shutdown/Server sleep)
+    for (let i = 1; i <= 7; i++) {
+        const checkDate = new Date();
+        checkDate.setDate(checkDate.getDate() - i);
+        const dateStr = checkDate.toISOString().split('T')[0];
+        
+        // Skip Sundays (optional, but school is usually closed. 
+        // If the user wants 7 days literally, we should respect it, 
+        // but often we don't want to mark absent on holidays. 
+        // For now, literal "if not marked, mark absent" as requested.)
+
+        // 1. Process STAFF Attendance
+        const { data: staffList } = await supabase.from('staff').select('id');
+        const { data: staffAttendance } = await supabase.from('staff_attendance').select('staff_id').eq('date', dateStr);
+        
+        if (staffList) {
+          const staffWithAttendance = new Set(staffAttendance?.map(a => a.staff_id) || []);
+          const missingStaff = staffList.filter(s => !staffWithAttendance.has(s.id));
+          
+          if (missingStaff.length > 0) {
+            console.log(`[SYS-ATTENDANCE] Marking ${missingStaff.length} staff as ABSENT for ${dateStr}`);
+            const absentRecords = missingStaff.map(s => ({
+              staff_id: s.id,
+              date: dateStr,
+              status: 'Absent'
+            }));
+            await supabase.from('staff_attendance').insert(absentRecords);
+          }
+        }
+
+        // 2. Process STUDENT Attendance
+        const { data: studentProfiles } = await supabase.from('student_profiles').select('student_id');
+        const { data: legacyStudents } = await supabase.from('students').select('id');
+        
+        const allStudentIds = new Set([
+          ...(studentProfiles?.map(p => p.student_id) || []),
+          ...(legacyStudents?.map(s => s.id) || [])
+        ]);
+
+        const { data: studentAttendance } = await supabase.from('student_attendance').select('student_id').eq('date', dateStr);
+        const studentsWithAttendance = new Set(studentAttendance?.map(a => a.student_id) || []);
+        
+        const missingStudents = Array.from(allStudentIds).filter(id => id && !studentsWithAttendance.has(id));
+
+        if (missingStudents.length > 0) {
+          console.log(`[SYS-ATTENDANCE] Marking ${missingStudents.length} students as ABSENT for ${dateStr}`);
+          const absentRecords = missingStudents.map(id => ({
+            student_id: id,
+            date: dateStr,
+            status: 'Absent',
+            subject: 'General',
+            marked_by: 'System Auto-Mark'
+          }));
+          await supabase.from('student_attendance').insert(absentRecords);
+        }
+    }
+
+    console.log("[SYS-ATTENDANCE] Integrity check complete.");
+  } catch (error) {
+    console.error("[SYS-ATTENDANCE] Error during scheduled check:", error);
+  }
+}
+
+// Schedule: Runs at 00:05 AM every day
+cron.schedule("5 0 * * *", () => {
+  console.log("[CRON] Triggering automated attendance check at 12:05 AM...");
+  runAutomatedAttendanceCheck();
+});
+
+// Run once on boot to catch up if software was down
+setTimeout(() => {
+  console.log("[SYS-BOOT] Running catch-up attendance check...");
+  runAutomatedAttendanceCheck();
+}, 5000); // Wait for initialization
+
 // In-Memory Database fallbacks for Preview Mode when Supabase connection parameters are not provided
 const activeBatchesStore: any[] = [
+  {
+    id: 'batch-demo',
+    name: 'Standard Practice Course (10 Months)',
+    description: 'Demonstration of dynamic 2.5 month gaps with 4 installments.',
+    totalBatchAmount: 10000,
+    minInstallments: 1,
+    maxInstallments: 4,
+    durationMonths: 10,
+    status: 'Active',
+    createdAt: new Date().toISOString()
+  },
   {
     id: 'batch-1',
     name: 'JEE Crash Course 2024',
@@ -17,29 +123,10 @@ const activeBatchesStore: any[] = [
     totalBatchAmount: 50000,
     minInstallments: 1,
     maxInstallments: 4,
+    durationMonths: 6,
     status: 'Active',
     createdAt: new Date().toISOString()
   },
-  {
-    id: 'batch-2',
-    name: 'Web Dev Bootcamp Cohort 5',
-    description: 'Full-stack MERN bootcamp over 12 weeks with live mentors.',
-    totalBatchAmount: 25000,
-    minInstallments: 1,
-    maxInstallments: 3,
-    status: 'Active',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'batch-3',
-    name: 'NEET Foundation Pro',
-    description: '1 Year foundation batch for Class 11 medical stream students.',
-    totalBatchAmount: 120000,
-    minInstallments: 2,
-    maxInstallments: 10,
-    status: 'Draft',
-    createdAt: new Date().toISOString()
-  }
 ];
 
 const enrolledStudentsStore: Array<{
@@ -70,7 +157,7 @@ const invoicesStore: Array<{
  * - maxInstallments < minInstallments
  */
 const validateBatchMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  const { name, totalBatchAmount, minInstallments, maxInstallments } = req.body;
+  const { name, totalBatchAmount, minInstallments, maxInstallments, durationMonths } = req.body;
 
   if (!name || typeof name !== "string" || !name.trim()) {
     return res.status(400).json({ error: "Batch Name is a required field." });
@@ -85,6 +172,7 @@ const validateBatchMiddleware = (req: Request, res: Response, next: NextFunction
 
   const minInst = parseInt(minInstallments);
   const maxInst = parseInt(maxInstallments);
+  const duration = parseInt(durationMonths);
 
   if (isNaN(minInst) || minInst < 1) {
     return res.status(400).json({ 
@@ -95,6 +183,12 @@ const validateBatchMiddleware = (req: Request, res: Response, next: NextFunction
   if (isNaN(maxInst) || maxInst < minInst) {
     return res.status(400).json({ 
       error: "Validation Failed: max_installments cannot be less than min_installments." 
+    });
+  }
+  
+  if (isNaN(duration) || duration < 1) {
+    return res.status(400).json({ 
+      error: "Validation Failed: duration_months must be greater than or equal to 1." 
     });
   }
 
@@ -110,7 +204,7 @@ app.get("/api/batches", (req: Request, res: Response) => {
 
 // POST /api/batches (Validated securely)
 app.post("/api/batches", validateBatchMiddleware, (req: Request, res: Response) => {
-  const { name, description, totalBatchAmount, minInstallments, maxInstallments, status } = req.body;
+  const { name, description, totalBatchAmount, minInstallments, maxInstallments, durationMonths, status } = req.body;
   
   const newBatch = {
     id: `batch-${Math.floor(Math.random() * 1000000)}`,
@@ -119,6 +213,7 @@ app.post("/api/batches", validateBatchMiddleware, (req: Request, res: Response) 
     totalBatchAmount: Number(totalBatchAmount),
     minInstallments: parseInt(minInstallments),
     maxInstallments: parseInt(maxInstallments),
+    durationMonths: parseInt(durationMonths) || parseInt(maxInstallments),
     status: status || "Active",
     createdAt: new Date().toISOString()
   };
@@ -141,7 +236,7 @@ app.delete("/api/batches/:id", (req: Request, res: Response) => {
 // PUT /api/batches/:id
 app.put("/api/batches/:id", validateBatchMiddleware, (req: Request, res: Response) => {
   const { id } = req.params;
-  const { name, description, totalBatchAmount, minInstallments, maxInstallments, status } = req.body;
+  const { name, description, totalBatchAmount, minInstallments, maxInstallments, durationMonths, status } = req.body;
   
   const batch = activeBatchesStore.find(b => b.id === id);
   if (!batch) {
@@ -153,6 +248,7 @@ app.put("/api/batches/:id", validateBatchMiddleware, (req: Request, res: Respons
   batch.totalBatchAmount = Number(totalBatchAmount);
   batch.minInstallments = parseInt(minInstallments);
   batch.maxInstallments = parseInt(maxInstallments);
+  batch.durationMonths = parseInt(durationMonths) || parseInt(maxInstallments);
   batch.status = status || batch.status;
   batch.updatedAt = new Date().toISOString();
 
@@ -195,7 +291,11 @@ app.post("/api/enrollments", (req: Request, res: Response) => {
 
   // 2. Automated Installment Accounting Engine (Satisfies Part 1 Utility)
   try {
-    const plans = calculateInstallments(batch.totalBatchAmount, installmentsCount);
+    const plans = calculateInstallments(
+      batch.totalBatchAmount, 
+      installmentsCount,
+      batch.durationMonths || batch.maxInstallments // Fallback if missing
+    );
     
     // Convert to mock invoices
     const batchInvoices = plans.map(p => {

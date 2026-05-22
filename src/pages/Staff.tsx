@@ -1,159 +1,607 @@
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
-import { Search, Calculator } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "../components/ui/dialog";
-import { api } from "../lib/api";
-import { Staff as StaffType } from "../types";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { Search, UserPlus, QrCode, PlusCircle, CheckCircle, ShieldAlert, X } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "../components/ui/dialog";
+import { supabase } from "../lib/supabase";
+import { QRCodeSVG } from "qrcode.react";
+
+interface Designation {
+  id: string;
+  name: string;
+  description: string;
+}
+
+interface StaffMember {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  status: string;
+  designations: string[];
+}
 
 export function Staff() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
-  const [staffList, setStaffList] = useState<StaffType[]>([]);
+  const [staffList, setStaffList] = useState<StaffMember[]>([]);
+  const [designations, setDesignations] = useState<Designation[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+
+  // Dialogs
+  const [isNewStaffOpen, setIsNewStaffOpen] = useState(false);
+  const [isDesignationOpen, setIsDesignationOpen] = useState(false);
+  const [isAttendanceOpen, setIsAttendanceOpen] = useState(false);
+  const [isQrViewOpen, setIsQrViewOpen] = useState(false);
+  const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
+
+  // Forms
+  const [newDesignationName, setNewDesignationName] = useState("");
+  const [newDesignationDesc, setNewDesignationDesc] = useState("");
+  
+  const [staffForm, setStaffForm] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    status: "Active",
+    designationIds: [] as string[],
+    dateOfBirth: "",
+    permanentAddress: "",
+    currentAddress: "",
+    governmentId: "",
+    educationQualifications: "",
+    employmentHistory: "",
+    referenceContacts: "",
+    backgroundScreening: "",
+    bankAccountDetails: "",
+    taxDeclarations: "",
+    pensionAccounts: "",
+    emergencyContact: "",
+    signedContract: false,
+    equipmentRequirements: ""
+  });
+
+  // Scanner Simulator
+  const [scanInput, setScanInput] = useState("");
+  const [scanMessage, setScanMessage] = useState<{msg: string, type: 'success'|'error'} | null>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const loadStaff = async () => {
-      const data = await api.getStaff();
-      setStaffList(data as StaffType[]);
-      setLoading(false);
-    };
-    loadStaff();
+    loadData();
   }, []);
 
-  const handleGeneratePayroll = async () => {
-    const totalPayout = staffList.reduce((acc, curr) => acc + curr.salary, 0);
+  const loadData = async () => {
+    setLoading(true);
+    
+    // Fallback Mock System if DB fails
+    let ds: Designation[] = [];
+    let ss: StaffMember[] = [];
+    
+    try {
+      const [{ data: dData }, { data: sData }, { data: sdData }] = await Promise.all([
+        supabase.from('designations').select('*'),
+        supabase.from('staffs').select('*'),
+        supabase.from('staff_designations').select('*')
+      ]);
 
-    // Record as transaction
-    await api.addTransaction({
-      date: new Date().toISOString().split('T')[0],
-      description: "Staff Payroll - Auto Generated",
-      type: "Expense",
-      category: "Payroll",
-      amount: totalPayout
-    });
+      if (dData) ds = dData as Designation[];
+      
+      if (sData) {
+        ss = sData.map(s => {
+          const theirD = sdData?.filter(sd => sd.staff_id === s.id).map(sd => sd.designation_id) || [];
+          const labels = theirD.map(id => ds.find(d => d.id === id)?.name || "Unknown").filter(Boolean);
+          return {
+            id: s.id,
+            first_name: s.first_name,
+            last_name: s.last_name,
+            email: s.email,
+            phone: s.phone,
+            status: s.status,
+            designations: labels
+          };
+        });
+      }
+    } catch (e) {
+      console.warn("Using minimal fallback", e);
+    }
 
-    // Record activity log
-    await api.addActivityLog({
-      action: "Generated monthly payroll",
-      module: "Staff",
-      time: new Date().toISOString().split('T')[0],
-      user: "Admin"
-    });
-
-    setIsDialogOpen(false);
+    setDesignations(ds);
+    setStaffList(ss);
+    setLoading(false);
   };
 
-  const filteredStaff = (staffList || []).filter(s => 
-    (s.name?.toLowerCase() || "").includes(search.toLowerCase()) || 
-    (s.department?.toLowerCase() || "").includes(search.toLowerCase())
-  );
+  const handleCreateDesignation = async () => {
+    if (!newDesignationName) return;
+    
+    const { error } = await supabase.from('designations').insert([{
+      name: newDesignationName,
+      description: newDesignationDesc
+    }]);
 
-  if (loading) {
-    return <div className="flex items-center justify-center h-64">Loading directory...</div>;
-  }
+    if (!error) {
+      setNewDesignationName("");
+      setNewDesignationDesc("");
+      setIsDesignationOpen(false);
+      loadData();
+    } else {
+      alert("Error: " + error.message);
+    }
+  };
+
+  const handleCreateStaff = async () => {
+    if (!staffForm.firstName || !staffForm.lastName) return;
+
+    // Supabase will generate ID via trigger if not provided (EMP-XXXX)
+    // But to get it back quickly in our basic app flow without custom RPC, we can just fetch latest or generate one
+    const tempId = 'EMP-' + Math.floor(Math.random() * 9000 + 1000);
+
+    const { error } = await supabase.from('staffs').insert([{
+      id: tempId,
+      first_name: staffForm.firstName,
+      last_name: staffForm.lastName,
+      email: staffForm.email,
+      phone: staffForm.phone,
+      status: staffForm.status,
+      date_of_birth: staffForm.dateOfBirth || null,
+      permanent_address: staffForm.permanentAddress,
+      current_address: staffForm.currentAddress,
+      government_id: staffForm.governmentId,
+      education_qualifications: staffForm.educationQualifications,
+      employment_history: staffForm.employmentHistory,
+      reference_contacts: staffForm.referenceContacts,
+      background_screening: staffForm.backgroundScreening,
+      bank_account_details: staffForm.bankAccountDetails,
+      tax_declarations: staffForm.taxDeclarations,
+      pension_accounts: staffForm.pensionAccounts,
+      emergency_contact: staffForm.emergencyContact,
+      signed_contract: staffForm.signedContract,
+      equipment_requirements: staffForm.equipmentRequirements
+    }]);
+
+    if (!error && staffForm.designationIds.length > 0) {
+      const joins = staffForm.designationIds.map(dId => ({
+        staff_id: tempId,
+        designation_id: dId
+      }));
+      await supabase.from('staff_designations').insert(joins);
+    }
+
+    if (!error) {
+      setIsNewStaffOpen(false);
+      setStaffForm({ 
+        firstName: "", lastName: "", email: "", phone: "", status: "Active", designationIds: [],
+        dateOfBirth: "", permanentAddress: "", currentAddress: "", governmentId: "", educationQualifications: "",
+        employmentHistory: "", referenceContacts: "", backgroundScreening: "", bankAccountDetails: "",
+        taxDeclarations: "", pensionAccounts: "", emergencyContact: "", signedContract: false, equipmentRequirements: ""
+      });
+      loadData();
+    } else {
+      alert("Error generating staff: " + error?.message);
+    }
+  };
+
+  const toggleDesignationSelection = (id: string) => {
+    setStaffForm(prev => {
+      const idx = prev.designationIds.indexOf(id);
+      if (idx > -1) {
+        return { ...prev, designationIds: prev.designationIds.filter(x => x !== id) };
+      } else {
+        return { ...prev, designationIds: [...prev.designationIds, id] };
+      }
+    });
+  };
+
+  const handleScanFocus = () => {
+    if (scanInputRef.current) scanInputRef.current.focus();
+  };
+
+  const handleMarkAttendance = async (e: any) => {
+    e.preventDefault();
+    if (!scanInput) return;
+
+    const sId = scanInput.trim().toUpperCase();
+    
+    // Check if staff exists
+    const validStaff = staffList.find(s => s.id === sId);
+    if (!validStaff) {
+       setScanMessage({ msg: "Invalid ID: Staff not found.", type: 'error' });
+       setScanInput("");
+       return;
+    }
+
+    try {
+      const { error } = await supabase.from('staff_attendance').insert([{
+        staff_id: sId,
+        status: "Present",
+        date: new Date().toISOString().split('T')[0],
+      }]);
+
+      if (error) {
+        setScanMessage({ msg: "Attendance already logged today, or error.", type: 'error' });
+      } else {
+        setScanMessage({ msg: `SUCCESS! Logged Present for ${validStaff.first_name} ${validStaff.last_name}`, type: 'success' });
+      }
+    } catch (e) {
+      setScanMessage({ msg: "System Error.", type: 'error' });
+    }
+    
+    setScanInput("");
+    // Re-focus scanner
+    setTimeout(() => {
+      handleScanFocus();
+    }, 100);
+  };
+
+  const filteredStaff = staffList.filter(s => 
+    (s.first_name + " " + s.last_name).toLowerCase().includes(search.toLowerCase()) || 
+    s.designations.some(d => d.toLowerCase().includes(search.toLowerCase())) ||
+    s.id.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h2 className="text-3xl font-bold tracking-tight">Staff Management</h2>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline" className="border-primary text-primary hover:bg-primary/20">
-              <Calculator className="mr-2 h-4 w-4" /> Generate Monthly Payroll
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Monthly Payroll Generation</DialogTitle>
-            </DialogHeader>
-            <div className="py-4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Staff Name</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead className="text-right">Net Pay</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {staffList.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={3} className="text-center py-4 text-muted-foreground">No staff found.</TableCell>
-                    </TableRow>
-                  ) : (
-                    staffList.map(s => (
-                      <TableRow key={s.id}>
-                        <TableCell>{s.name}</TableCell>
-                        <TableCell><Badge variant="outline">{s.role}</Badge></TableCell>
-                        <TableCell className="text-right">₹{s.salary?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                  <TableRow className="bg-muted/50 font-bold">
-                    <TableCell colSpan={2} className="text-right">Total Payout:</TableCell>
-                    <TableCell className="text-right text-primary">
-                      ₹{staffList.reduce((acc, curr) => acc + (curr.salary || 0), 0).toLocaleString()}
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </div>
-            <DialogFooter>
-              <Button onClick={handleGeneratePayroll} disabled={staffList.length === 0}>
-                Confirm & Initiate Processing
+        <div>
+           <h2 className="text-3xl font-bold tracking-tight">Staff Management</h2>
+           <p className="text-sm text-muted-foreground mt-1">Manage personnel, custom designations, and biometrics.</p>
+        </div>
+        
+        <div className="flex flex-wrap gap-2">
+          {/* Attendance Scanner Dialog */}
+          <Dialog open={isAttendanceOpen} onOpenChange={(open) => {
+             setIsAttendanceOpen(open);
+             if(open) { setTimeout(() => handleScanFocus(), 100); setScanMessage(null); }
+          }}>
+            <DialogTrigger asChild>
+              <Button variant="default" className="bg-primary hover:bg-primary/90 text-primary-foreground">
+                <QrCode className="mr-2 h-4 w-4" /> ID Scanner
               </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            </DialogTrigger>
+            <DialogContent className="max-w-md bg-zinc-950 text-white border-zinc-800">
+              <DialogHeader>
+                <DialogTitle className="text-center font-mono">STAFF ATTENDANCE SCANNER</DialogTitle>
+                <DialogDescription className="text-center text-zinc-400">
+                  Ensure laser alignment with QR code.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-8 flex flex-col items-center justify-center space-y-6">
+                
+                {/* Virtual Scanner Target View */}
+                <div 
+                  className="relative w-48 h-48 border-2 border-emerald-500/30 rounded-xl flex items-center justify-center bg-emerald-500/5 overflow-hidden group cursor-pointer"
+                  onClick={handleScanFocus}
+                >
+                  <div className="absolute inset-0 bg-emerald-500/10 animate-pulse opacity-50" />
+                  {/* Scan Laser */}
+                  <div className="absolute top-0 left-0 right-0 h-0.5 bg-emerald-400 shadow-[0_0_10px_2px_rgba(52,211,153,0.5)] animate-[scan_2s_ease-in-out_infinite]" />
+                  <QrCode className="h-16 w-16 text-emerald-500/40" />
+                  
+                  <div className="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-emerald-500" />
+                  <div className="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-emerald-500" />
+                  <div className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-emerald-500" />
+                  <div className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-emerald-500" />
+                </div>
+
+                <form onSubmit={handleMarkAttendance} className="w-full relative">
+                  <Input 
+                    ref={scanInputRef}
+                    value={scanInput}
+                    onChange={(e) => setScanInput(e.target.value)}
+                    placeholder="Scan EMP ID..."
+                    className="bg-zinc-900 border-zinc-700 text-center font-mono text-zinc-300 placeholder:text-zinc-600 focus-visible:ring-emerald-500"
+                    autoFocus
+                  />
+                  <div className="absolute right-3 top-1.5 opacity-50 text-[10px] uppercase font-bold text-emerald-400">Ready</div>
+                </form>
+
+                {scanMessage && (
+                  <div className={`text-sm p-3 rounded flex items-center gap-2 w-full font-medium ${scanMessage.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                    {scanMessage.type === 'success' ? <CheckCircle className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
+                    {scanMessage.msg}
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* New Designation Dialog */}
+          <Dialog open={isDesignationOpen} onOpenChange={setIsDesignationOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="border-primary/20 text-primary hover:bg-primary/10">
+                <PlusCircle className="mr-2 h-4 w-4" /> Manage Designations
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Custom Designations</DialogTitle>
+                <DialogDescription>Define multi-assignable roles for complex team hierarchies.</DialogDescription>
+              </DialogHeader>
+              <div className="py-4 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Title</label>
+                  <Input value={newDesignationName} onChange={e => setNewDesignationName(e.target.value)} placeholder="e.g. Senior Faculty, Operations Lead" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Description (Optional)</label>
+                  <Input value={newDesignationDesc} onChange={e => setNewDesignationDesc(e.target.value)} placeholder="Role clearance outline" />
+                </div>
+                <Button className="w-full mt-2 bg-foreground text-background" onClick={handleCreateDesignation}>Create Designation Rule</Button>
+
+                <div className="mt-8">
+                  <h4 className="text-xs font-bold uppercase mb-3">Live Roster Designations</h4>
+                  <div className="flex flex-wrap gap-2">
+                     {designations.length === 0 ? <p className="text-xs italic opacity-50">No designations defined.</p> : designations.map(d => (
+                       <Badge key={d.id} variant="secondary" className="px-3 py-1 font-medium">{d.name}</Badge>
+                     ))}
+                  </div>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* New Staff Dialog */}
+          <Dialog open={isNewStaffOpen} onOpenChange={setIsNewStaffOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
+                <UserPlus className="mr-2 h-4 w-4" /> Recruit Staff
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Enroll Personnel</DialogTitle>
+                <DialogDescription>Complete comprehensive personnel onboarding forms.</DialogDescription>
+              </DialogHeader>
+              
+              <Tabs defaultValue="personal" className="w-full mt-2">
+                <TabsList className="grid w-full grid-cols-4">
+                  <TabsTrigger value="personal" className="text-xs">Personal</TabsTrigger>
+                  <TabsTrigger value="professional" className="text-xs">Professional</TabsTrigger>
+                  <TabsTrigger value="financial" className="text-xs">Financial</TabsTrigger>
+                  <TabsTrigger value="setup" className="text-xs">Setup</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="personal" className="space-y-4 pt-4 outline-none">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">First Name*</label>
+                      <Input value={staffForm.firstName} onChange={e => setStaffForm({...staffForm, firstName: e.target.value})} placeholder="Jane" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Last Name*</label>
+                      <Input value={staffForm.lastName} onChange={e => setStaffForm({...staffForm, lastName: e.target.value})} placeholder="Doe" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Email Address</label>
+                      <Input value={staffForm.email} onChange={e => setStaffForm({...staffForm, email: e.target.value})} placeholder="jane@org.com" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Phone Number</label>
+                      <Input value={staffForm.phone} onChange={e => setStaffForm({...staffForm, phone: e.target.value})} placeholder="+91..." />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Date of Birth</label>
+                      <Input type="date" value={staffForm.dateOfBirth} onChange={e => setStaffForm({...staffForm, dateOfBirth: e.target.value})} />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Govt/National ID</label>
+                      <Input value={staffForm.governmentId} onChange={e => setStaffForm({...staffForm, governmentId: e.target.value})} placeholder="PAN / Aadhaar / Passport Num" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Current Address</label>
+                    <Input value={staffForm.currentAddress} onChange={e => setStaffForm({...staffForm, currentAddress: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Permanent Address</label>
+                    <Input value={staffForm.permanentAddress} onChange={e => setStaffForm({...staffForm, permanentAddress: e.target.value})} />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="professional" className="space-y-4 pt-4 outline-none">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Educational Qualifications</label>
+                    <Input value={staffForm.educationQualifications} onChange={e => setStaffForm({...staffForm, educationQualifications: e.target.value})} placeholder="Highest degrees, certifications..." />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Employment History</label>
+                    <Input value={staffForm.employmentHistory} onChange={e => setStaffForm({...staffForm, employmentHistory: e.target.value})} placeholder="Previous organizations and roles..." />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Reference Contacts</label>
+                    <Input value={staffForm.referenceContacts} onChange={e => setStaffForm({...staffForm, referenceContacts: e.target.value})} placeholder="Names and phone numbers of references..." />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Background Screening</label>
+                    <Input value={staffForm.backgroundScreening} onChange={e => setStaffForm({...staffForm, backgroundScreening: e.target.value})} placeholder="Notes on BGV status or police verification..." />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="financial" className="space-y-4 pt-4 outline-none">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Bank Account Information</label>
+                    <Input value={staffForm.bankAccountDetails} onChange={e => setStaffForm({...staffForm, bankAccountDetails: e.target.value})} placeholder="Bank Name, Account Num, IFSC/Routing Code" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Tax Declarations</label>
+                      <Input value={staffForm.taxDeclarations} onChange={e => setStaffForm({...staffForm, taxDeclarations: e.target.value})} placeholder="Tax regime, exemptions..." />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Pension / Provident</label>
+                      <Input value={staffForm.pensionAccounts} onChange={e => setStaffForm({...staffForm, pensionAccounts: e.target.value})} placeholder="UAN / PF Number..." />
+                    </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="setup" className="space-y-4 pt-4 outline-none">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Emergency Contact</label>
+                      <Input value={staffForm.emergencyContact} onChange={e => setStaffForm({...staffForm, emergencyContact: e.target.value})} placeholder="Name & Num..." />
+                    </div>
+                    <div className="space-y-2 flex items-center pt-8">
+                       <input type="checkbox" id="signedContract" className="mr-2 h-4 w-4 rounded border-gray-300" checked={staffForm.signedContract} onChange={e => setStaffForm({...staffForm, signedContract: e.target.checked})} />
+                       <label htmlFor="signedContract" className="text-sm font-medium">Employment Contract Signed</label>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Equipment & Access Needs</label>
+                    <Input value={staffForm.equipmentRequirements} onChange={e => setStaffForm({...staffForm, equipmentRequirements: e.target.value})} placeholder="Laptop specs, keycard access, software licenses..." />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Status</label>
+                    <select 
+                      className="w-full h-9 px-3 py-1 bg-background border border-input rounded-md text-sm"
+                      value={staffForm.status} 
+                      onChange={e => setStaffForm({...staffForm, status: e.target.value})}
+                    >
+                      <option value="Active">Active Duty</option>
+                      <option value="On Leave">On Leave</option>
+                    </select>
+                  </div>
+                  <div className="pt-4 border-t mt-4 border-border">
+                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3 block">Assign Multiple Designations</label>
+                    <div className="flex flex-wrap gap-2">
+                      {designations.length === 0 ? <p className="text-xs italic text-muted-foreground">Please create designations first.</p> : 
+                        designations.map(d => {
+                          const isSel = staffForm.designationIds.includes(d.id);
+                          return (
+                            <Badge 
+                              key={d.id} 
+                              onClick={() => toggleDesignationSelection(d.id)}
+                              variant={isSel ? "default" : "outline"} 
+                              className={`cursor-pointer px-3 py-1 transition-all ${isSel ? 'bg-primary text-primary-foreground hover:bg-primary/80' : 'hover:bg-muted font-normal text-muted-foreground'}`}
+                            >
+                              {d.name} {isSel && <CheckCircle className="ml-1.5 h-3 w-3 inline" />}
+                            </Badge>
+                          )
+                        })
+                      }
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+
+              <DialogFooter className="mt-6 border-t pt-4">
+                <Button onClick={handleCreateStaff} disabled={!staffForm.firstName || !staffForm.lastName}>
+                  Finalize Contract & Enroll
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
+
+      <Dialog open={isQrViewOpen} onOpenChange={setIsQrViewOpen}>
+        <DialogContent className="max-w-sm flex flex-col items-center justify-center p-8 bg-zinc-50 border-zinc-200">
+          <DialogTitle className="sr-only">Staff ID Card</DialogTitle>
+          <div className="w-full bg-white border border-zinc-200 rounded-2xl shadow-xl overflow-hidden shadow-black/5 relative">
+            <div className="h-16 bg-zinc-900 border-b border-zinc-800 flex items-center justify-center">
+               <div className="font-serif text-zinc-100 font-bold uppercase text-[10px] tracking-[4px]">Staff ID Permit</div>
+            </div>
+            <div className="p-8 flex flex-col items-center">
+              <div className="bg-white p-3 border-2 border-zinc-100 rounded-xl mb-6 shadow-sm">
+                 {selectedStaff && <QRCodeSVG value={selectedStaff.id} size={160} level="H" fgColor="#09090b" />}
+              </div>
+              <h2 className="font-bold text-xl text-zinc-900 mb-1">{selectedStaff?.first_name} {selectedStaff?.last_name}</h2>
+              <div className="font-mono text-zinc-400 font-bold text-xs tracking-widest">{selectedStaff?.id}</div>
+              <div className="flex flex-wrap items-center justify-center gap-1.5 mt-5">
+                 {selectedStaff?.designations?.map(d => <Badge key={d} variant="secondary" className="text-[10px] uppercase font-bold text-zinc-600 bg-zinc-100/50">{d}</Badge>)}
+              </div>
+            </div>
+            {/* Hologram graphic */}
+            <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/40 to-transparent opacity-50 mix-blend-overlay pointer-events-none" />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader className="pb-4">
-          <CardTitle>Staff Directory</CardTitle>
+           <CardTitle>Staff Directory</CardTitle>
+           <CardDescription>Comprehensive personnel roster categorized by multi-assignable roles.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="p-4 border-b flex items-center space-x-2">
-            <Search className="h-5 w-5 text-muted-foreground" />
+            <Search className="h-5 w-5 text-muted-foreground/50" />
             <Input 
-              placeholder="Search by name or department..." 
-              className="max-w-sm border-0 focus-visible:ring-0 bg-transparent px-2"
+              placeholder="Search by name, EMP ID, or designation tag..." 
+              className="max-w-md border-0 focus-visible:ring-0 bg-transparent px-2"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Staff ID</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Department</TableHead>
-                <TableHead>Contact</TableHead>
+              <TableRow className="bg-muted/30">
+                <TableHead className="font-bold text-xs tracking-wider">EMP ID</TableHead>
+                <TableHead className="font-bold text-xs tracking-wider">PERSONNEL</TableHead>
+                <TableHead className="font-bold text-xs tracking-wider">ASSIGNED DESIGNATIONS</TableHead>
+                <TableHead className="font-bold text-xs tracking-wider">STATUS</TableHead>
+                <TableHead className="font-bold text-xs tracking-wider text-right">ACTIONS</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredStaff.length === 0 ? (
+              {loading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                    No staff members found matching your search.
+                   <TableCell colSpan={5} className="text-center py-12 text-muted-foreground animate-pulse font-medium">Booting roster schema...</TableCell>
+                </TableRow>
+              ) : filteredStaff.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-12">
+                    <p className="text-muted-foreground/75 font-medium">No personnel found.</p>
                   </TableCell>
                 </TableRow>
               ) : (
                 filteredStaff.map((staff) => (
-                  <TableRow key={staff.id}>
-                    <TableCell className="font-medium text-muted-foreground">{staff.id}</TableCell>
-                    <TableCell>{staff.name}</TableCell>
+                  <TableRow 
+                    key={staff.id} 
+                    className="group hover:bg-muted/10 cursor-pointer"
+                    onClick={() => navigate(`/staff/${staff.id}`)}
+                  >
+                    <TableCell className="font-mono text-xs font-bold text-muted-foreground/75 w-[120px]">{staff.id}</TableCell>
                     <TableCell>
-                      <Badge variant={staff.role === "Admin" ? "secondary" : "default"}>
-                        {staff.role}
-                      </Badge>
+                      <div className="font-bold text-sm">{staff.first_name} {staff.last_name}</div>
+                      <div className="text-[10px] text-muted-foreground">{staff.phone} • {staff.email || 'No email provided'}</div>
                     </TableCell>
-                    <TableCell>{staff.department}</TableCell>
-                    <TableCell>{staff.contact}</TableCell>
+                    <TableCell>
+                       <div className="flex flex-wrap gap-1">
+                          {staff.designations.length === 0 ? (
+                             <span className="text-[10px] italic text-muted-foreground/50">Unassigned Pipeline</span>
+                          ) : (
+                             staff.designations.map(d => <Badge key={d} variant="outline" className="text-[10px] font-bold border-primary/20 text-foreground shadow-sm bg-background/50 h-5 px-1.5">{d}</Badge>)
+                          )}
+                       </div>
+                    </TableCell>
+                    <TableCell>
+                       <Badge variant={staff.status === 'Active' ? 'success' : 'secondary'} className="text-[10px] uppercase font-bold px-1.5 h-5 shadow-none pb-[2px]">
+                         {staff.status}
+                       </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                       <Button 
+                         variant="ghost" 
+                         size="sm" 
+                         className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground opacity-50 group-hover:opacity-100 transition-opacity"
+                         onClick={(e) => { 
+                           e.stopPropagation();
+                           setSelectedStaff(staff); 
+                           setIsQrViewOpen(true); 
+                         }}
+                       >
+                         <QrCode className="h-4 w-4" />
+                       </Button>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -161,6 +609,15 @@ export function Staff() {
           </Table>
         </CardContent>
       </Card>
+
+      <style>{`
+        @keyframes scan {
+          0% { transform: translateY(0); }
+          50% { transform: translateY(188px); }
+          100% { transform: translateY(0); }
+        }
+      `}</style>
     </div>
   );
 }
+

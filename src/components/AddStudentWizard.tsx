@@ -145,11 +145,11 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
   const nextStep = async () => {
     let fieldsToValidate: (keyof WizardFormValues)[] = [];
     if (currentStep === 1) {
-      fieldsToValidate = ['firstName', 'lastName', 'dateOfBirth', 'gender', 'grade', 'batchId', 'installmentsCount'];
+      fieldsToValidate = ['firstName', 'lastName', 'dateOfBirth', 'gender', 'grade', 'batchId', 'installmentsCount', 'bloodGroup', 'motherTongue', 'primaryLanguage'];
     } else if (currentStep === 2) {
-      fieldsToValidate = ['parent1Name', 'parent1Relation', 'parent1Contact', 'addressLine1', 'city', 'state', 'zipCode'];
+      fieldsToValidate = ['parent1Name', 'parent1Relation', 'parent1Contact', 'parent1Email', 'parent1Occupation', 'parent1Income', 'addressLine1', 'city', 'state', 'zipCode'];
     } else if (currentStep === 3) {
-      fieldsToValidate = ['emergencyContactName', 'emergencyContactNumber'];
+      fieldsToValidate = ['emergencyContactName', 'emergencyContactNumber', 'previousSchool', 'lastGradeCompleted', 'previousGpa', 'reasonForLeaving', 'allergies', 'medicalConditions', 'dailyMedications'];
     }
 
     const isStepValid = await trigger(fieldsToValidate);
@@ -333,7 +333,17 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                </div>
             </div>
 
-            <form className="flex-1 flex flex-col" onSubmit={handleSubmit(onSubmit)}>
+            <form 
+              className="flex-1 flex flex-col" 
+              onSubmit={handleSubmit(onSubmit, (errors) => {
+                console.error("Form validation errors:", errors);
+                // If there are errors on a different step, we should probably tell the user
+                const errorFields = Object.keys(errors);
+                if (errorFields.length > 0) {
+                  alert(`Please fix the errors in the ${errorFields.length > 1 ? 'fields' : 'field'}: ${errorFields.join(", ")}`);
+                }
+              })}
+            >
               <AnimatePresence mode="wait">
                 <motion.div
                   key={currentStep}
@@ -380,6 +390,7 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                             <option value="Female">Female</option>
                             <option value="Other">Other</option>
                           </select>
+                          {errors.gender && <span className="text-[10px] text-destructive">{errors.gender.message}</span>}
                         </div>
                         <div className="space-y-1">
                           <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Grade *</label>
@@ -488,6 +499,7 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                           <div className="space-y-1">
                             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Relationship *</label>
                             <Input {...register("parent1Relation")} />
+                            {errors.parent1Relation && <span className="text-[10px] text-destructive">{errors.parent1Relation.message}</span>}
                           </div>
                           <div className="space-y-1">
                             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Contact No. (10-Digit) *</label>
@@ -496,7 +508,8 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                           </div>
                           <div className="space-y-1">
                             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Email Address</label>
-                            <Input type="email" {...register("parent1Email")} />
+                            <Input type="email" {...register("parent1Email")} placeholder="parent@example.com" />
+                            {errors.parent1Email && <span className="text-[10px] text-destructive">{errors.parent1Email.message}</span>}
                           </div>
                           <div className="space-y-1">
                             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Occupation</label>
@@ -520,19 +533,23 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                         <div className="space-y-1">
                           <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Address Line 1 *</label>
                           <Input {...register("addressLine1")} />
+                          {errors.addressLine1 && <span className="text-[10px] text-destructive">{errors.addressLine1.message}</span>}
                         </div>
                         <div className="grid grid-cols-3 gap-4">
                           <div className="space-y-1">
                             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">City *</label>
                             <Input {...register("city")} />
+                            {errors.city && <span className="text-[10px] text-destructive">{errors.city.message}</span>}
                           </div>
                           <div className="space-y-1">
                             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">State *</label>
                             <Input {...register("state")} />
+                            {errors.state && <span className="text-[10px] text-destructive">{errors.state.message}</span>}
                           </div>
                           <div className="space-y-1">
                             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Zip Code *</label>
                             <Input {...register("zipCode")} />
+                            {errors.zipCode && <span className="text-[10px] text-destructive">{errors.zipCode.message}</span>}
                           </div>
                         </div>
                       </div>
@@ -588,10 +605,12 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                           <div className="space-y-1">
                             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Contact Name *</label>
                             <Input {...register("emergencyContactName")} />
+                            {errors.emergencyContactName && <span className="text-[10px] text-destructive">{errors.emergencyContactName.message}</span>}
                           </div>
                           <div className="space-y-1">
                             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Contact Number *</label>
                             <Input {...register("emergencyContactNumber")} maxLength={10} />
+                            {errors.emergencyContactNumber && <span className="text-[10px] text-destructive">{errors.emergencyContactNumber.message}</span>}
                           </div>
                         </div>
                       </div>

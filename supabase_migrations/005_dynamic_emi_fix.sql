@@ -1,0 +1,109 @@
+-- Re-dropping and Re-creating the enrollment function to ensure dynamic EMI spreads are correctly applied
+-- The previous migration might not have re-run on edit.
+
+CREATE OR REPLACE FUNCTION public.enroll_student_in_batch(
+    p_student_id TEXT,
+    p_batch_id TEXT,
+    p_installments_count INT
+)
+RETURNS JSON AS $$
+DECLARE
+    v_batch_name VARCHAR(255);
+    v_total_amount DECIMAL(12,2);
+    v_duration_months INT;
+    v_student_name TEXT;
+    v_grade TEXT;
+    v_contact TEXT;
+    v_status TEXT;
+    v_installment_amount DECIMAL(12,2);
+    v_gap_months FLOAT;
+    v_due_date DATE;
+    v_invoice_id TEXT;
+    i INT;
+    v_result JSON;
+BEGIN
+    -- 1. Validate batch exists and fetch details
+    SELECT name, total_batch_amount, duration_months
+    INTO v_batch_name, v_total_amount, v_duration_months
+    FROM public.batches 
+    WHERE id = p_batch_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Batch % not found', p_batch_id;
+    END IF;
+
+    -- 2. Validate student exists in legacy students table
+    SELECT name INTO v_student_name
+    FROM public.students
+    WHERE id = p_student_id;
+
+    IF NOT FOUND THEN
+        -- Auto-sync a stub to public.students
+        SELECT first_name || ' ' || last_name, grade, parent1_contact, status 
+        INTO v_student_name, v_grade, v_contact, v_status
+        FROM public.student_profiles WHERE student_id = p_student_id OR id::TEXT = p_student_id;
+        
+        INSERT INTO public.students (id, name, grade, contact, status)
+        VALUES (p_student_id, v_student_name, v_grade, v_contact, v_status);
+    END IF;
+
+    -- 3. Calculate installment mathematics
+    v_installment_amount := ROUND(v_total_amount / p_installments_count, 2);
+    
+    -- Dynamic Spreading Logic:
+    -- If count = 4 and duration = 10 months
+    -- Gap = 10 / (4 - 1) = 3.33 months between payments
+    -- i=1: 0 * 3.33 = 0 (Immediate)
+    -- i=2: 1 * 3.33 = 3.33
+    -- i=3: 2 * 3.33 = 6.66
+    -- i=4: 3 * 3.33 = 10.0 (End of duration)
+    IF p_installments_count > 1 THEN
+        v_gap_months := v_duration_months::FLOAT / (p_installments_count - 1);
+    ELSE
+        v_gap_months := 0;
+    END IF;
+
+    -- 4. Insert into bridge table
+    INSERT INTO public.student_batches (student_id, batch_id, installments_count, amount_per_installment)
+    VALUES (p_student_id, p_batch_id, p_installments_count, v_installment_amount)
+    ON CONFLICT (student_id, batch_id) DO NOTHING;
+
+    -- 5. Generate invoices 
+    FOR i IN 1..p_installments_count LOOP
+        -- Set due dates spanning over dynamic gaps
+        v_due_date := CURRENT_DATE + ( ((i - 1) * v_gap_months) * INTERVAL '1 month' );
+        
+        -- Generate unique invoice ID
+        v_invoice_id := 'INV-' || p_student_id || '-' || extract(epoch FROM now())::bigint || '-' || i;
+
+        -- Insert invoice record
+        INSERT INTO public.invoices (
+            id, 
+            student_id, 
+            student_name, 
+            category, 
+            amount, 
+            due_date, 
+            status
+        ) VALUES (
+            v_invoice_id,
+            p_student_id,
+            v_student_name,
+            v_batch_name || ' - Installment ' || i,
+            v_installment_amount,
+            v_due_date,
+            'Unpaid'
+        );
+    END LOOP;
+
+    v_result := json_build_object(
+        'status', 'success',
+        'student_id', p_student_id,
+        'batch_id', p_batch_id,
+        'gap_months', v_gap_months,
+        'invoices_created', p_installments_count
+    );
+
+    RETURN v_result;
+END;
+$$ LANGUAGE plpgsql;

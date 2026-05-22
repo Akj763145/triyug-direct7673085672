@@ -318,7 +318,7 @@ export function StudentProfile() {
         
       if (!invoiceError && invoiceData) {
         // Ensure proper camelCase mapping if needed by UI
-        const mappedInvoices = invoiceData.map(inv => ({
+        let mappedInvoices = invoiceData.map(inv => ({
           ...inv,
           id: inv.id,
           studentId: inv.student_id,
@@ -328,6 +328,50 @@ export function StudentProfile() {
           status: inv.status || 'Upcoming',
           type: 'Primary'
         }));
+
+        // --- SELF-HEALING LOGIC FOR LEGACY SEQUENTIAL DATES ---
+        try {
+          const { data: sBatches } = await supabase.from('student_batches').select('batch_id, enrolled_at').eq('student_id', id);
+          if (sBatches && sBatches.length > 0) {
+            const { data: batches } = await supabase.from('batches').select('id, name, duration_months').eq('id', sBatches[0].batch_id);
+            if (batches && batches.length > 0) {
+              const batch = batches[0];
+              const primaryInvs = mappedInvoices
+                .filter(i => (i.title.includes(batch.name) || i.title.includes('Installment')) && !i.title.toLowerCase().includes('incidental'))
+                .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+              
+              if (primaryInvs.length > 1 && batch.duration_months > 0) {
+                // Gap in days = (Months * 30) / Count
+                const totalDays = batch.duration_months * 30;
+                const gapInDays = Math.floor(totalDays / primaryInvs.length);
+                
+                // Base date is the date of the first installment
+                const baseDate = new Date(primaryInvs[0].dueDate);
+                
+                primaryInvs.forEach((pi, index) => {
+                  const currentDate = new Date(baseDate.getTime());
+                  if (index > 0) {
+                    currentDate.setDate(currentDate.getDate() + (index * gapInDays));
+                  }
+                  
+                  const targetIso = currentDate.toISOString().split('T')[0];
+                  
+                  const target = mappedInvoices.find(m => m.id === pi.id);
+                  if (target && target.dueDate !== targetIso) {
+                    // Update in UI
+                    target.dueDate = targetIso;
+                    // Silent fix to DB
+                    supabase.from('invoices').update({ due_date: targetIso }).eq('id', pi.id).then();
+                  }
+                });
+              }
+            }
+          }
+        } catch (e) {
+             console.error("Self-healing dates failed", e);
+        }
+        // --------------------------------------------------------
+
         setInvoices(mappedInvoices);
       } else {
         setInvoices([]);
@@ -1538,8 +1582,15 @@ export function StudentProfile() {
                  onClick={() => setShowInstallments(!showInstallments)}
                >
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
-                      <Clock className="h-3 w-3" /> INSTALLMENTS SECTION
+                    <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center justify-between w-full">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-3 w-3" /> INSTALLMENTS SECTION
+                      </div>
+                      {computedInvoices.length > 1 && (
+                        <div className="text-[8px] font-mono text-primary/60 lowercase italic pr-4">
+                           spread across entire batch duration
+                        </div>
+                      )}
                     </CardTitle>
                     {showInstallments ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                   </div>
@@ -1600,7 +1651,7 @@ export function StudentProfile() {
                                         <span className={`text-[9px] uppercase font-black tracking-tighter px-1.5 py-0.5 rounded ${inst.computedStatus === 'Paid' ? 'bg-emerald-500/10 text-emerald-600' : inst.computedStatus === 'Overdue' ? 'bg-red-500/10 text-red-500' : inst.computedStatus === 'Partial' ? 'bg-yellow-500/10 text-yellow-600' : 'bg-muted/50 text-muted-foreground'}`}>{inst.computedStatus}</span>
                                         <span className={`text-[8px] font-bold uppercase tracking-widest ${inst.type === 'Incidental' ? 'text-indigo-400' : 'opacity-40'}`}>{inst.type}</span>
                                      </div>
-                                     <span className="text-[9px] opacity-60 font-mono italic">Due {new Date(inst.dueDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                     <span className="text-[9px] opacity-60 font-mono italic">Due {new Date(inst.dueDate + 'T12:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                                   </div>
                                </div>
                             </div>

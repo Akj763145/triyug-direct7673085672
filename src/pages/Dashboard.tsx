@@ -127,35 +127,65 @@ export function Dashboard() {
     }
   };
 
-  const handleScanSuccess = async (decodedText: string) => {
+  const handleScanSuccess = async (rawInput: string) => {
+    let decodedText = rawInput.trim();
     if (decodedText.startsWith('ATTENDANCE_SCAN:')) {
-      const studentId = decodedText.split(':')[1];
-      const date = new Date().toISOString().split('T')[0];
-      
-      try {
-        const { error } = await supabase
-          .from('student_attendance')
-          .upsert({
-            student_id: studentId,
-            date: date,
-            status: 'Present',
-            subject: 'General',
-            marked_by: 'QR Scanner'
-          }, { onConflict: 'student_id,date,subject' });
-
-        if (error) throw error;
-        playBeep();
-        setScanResult(`Attendance marked for ID: ${studentId}`);
-        setTimeout(() => setScanResult(null), 3000);
-      } catch (err) {
-        console.error(err);
-        setScanResult('Error marking attendance');
-        setTimeout(() => setScanResult(null), 3000);
-      }
-    } else {
-      setScanResult('Invalid QR Code');
-      setTimeout(() => setScanResult(null), 3000);
+      decodedText = decodedText.split(':')[1];
     }
+    const id = decodedText.toUpperCase();
+    const date = new Date().toISOString().split('T')[0];
+    
+    try {
+      // Check if ID is staff
+      const { data: staffData } = await supabase.from('staffs').select('id, first_name, last_name').eq('id', id).single();
+      
+      if (staffData) {
+         // Mark staff attendance
+         const { error } = await supabase
+          .from('staff_attendance')
+          .upsert({
+            staff_id: id,
+            date: date,
+            status: 'Present'
+          }, { onConflict: 'staff_id,date' });
+
+         if (error) {
+            setScanResult('Error marking staff attendance or duplicate');
+         } else {
+            playBeep();
+            setScanResult(`Attendance marked for Staff: ${staffData.first_name} ${staffData.last_name}`);
+         }
+      } else {
+         // Try fetching student
+         const { data: studentData } = await supabase.from('students').select('id, first_name, last_name').eq('id', id).single();
+         
+         if (studentData) {
+            const { error } = await supabase
+              .from('student_attendance')
+              .upsert({
+                student_id: id,
+                date: date,
+                status: 'Present',
+                subject: 'General',
+                marked_by: 'QR/Manual Scanner'
+              }, { onConflict: 'student_id,date,subject' });
+              
+            if (error) {
+              setScanResult('Error marking student attendance or duplicate');
+            } else {
+              playBeep();
+              setScanResult(`Attendance marked for Student: ${studentData.first_name} ${studentData.last_name}`);
+            }
+         } else {
+            setScanResult(`Invalid ID: Not Found in System (${id})`);
+         }
+      }
+    } catch (err) {
+      console.error(err);
+      setScanResult('Database Error while scanning');
+    }
+    
+    setTimeout(() => setScanResult(null), 3000);
   };
 
   useEffect(() => {
@@ -266,15 +296,33 @@ export function Dashboard() {
                 Front Desk Scanner
               </DialogTitle>
               <DialogDescription>
-                Point the student ID card QR code at the camera.
+                Point the Student or Staff ID card QR code at the camera, or scan using a USB barcode scanner.
               </DialogDescription>
             </DialogHeader>
             <div className="mt-4 flex flex-col items-center">
                {isScannerOpen && !scanResult && (
-                 <QRScanner 
-                    onScan={handleScanSuccess} 
-                    onClose={() => setIsScannerOpen(false)} 
-                 />
+                 <>
+                   <QRScanner 
+                      onScan={handleScanSuccess} 
+                      onClose={() => setIsScannerOpen(false)} 
+                   />
+                   <div className="w-full mt-6">
+                     <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 text-center">OR SCAN WITH BARCODE / TYPE ID</p>
+                     <form onSubmit={(e) => {
+                        e.preventDefault();
+                        const val = new FormData(e.currentTarget).get('manual_id') as string;
+                        if (val) handleScanSuccess(val);
+                        e.currentTarget.reset();
+                     }}>
+                       <input 
+                         name="manual_id"
+                         autoFocus
+                         placeholder="Enter ID and press Enter..."
+                         className="w-full bg-background border border-input rounded-md h-10 px-3 py-2 text-sm text-center"
+                       />
+                     </form>
+                   </div>
+                 </>
                )}
                
                <AnimatePresence>

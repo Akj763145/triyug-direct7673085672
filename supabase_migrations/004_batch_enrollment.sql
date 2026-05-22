@@ -28,19 +28,21 @@ RETURNS JSON AS $$
 DECLARE
     v_batch_name VARCHAR(255);
     v_total_amount DECIMAL(12,2);
+    v_duration_months INT;
     v_student_name TEXT;
     v_grade TEXT;
     v_contact TEXT;
     v_status TEXT;
     v_installment_amount DECIMAL(12,2);
+    v_gap_months FLOAT;
     v_due_date DATE;
     v_invoice_id TEXT;
     i INT;
     v_result JSON;
 BEGIN
     -- 1. Validate batch exists and fetch details
-    SELECT name, total_batch_amount 
-    INTO v_batch_name, v_total_amount
+    SELECT name, total_batch_amount, duration_months
+    INTO v_batch_name, v_total_amount, v_duration_months
     FROM public.batches 
     WHERE id = p_batch_id;
 
@@ -65,6 +67,7 @@ BEGIN
 
     -- 3. Calculate installment mathematics
     v_installment_amount := ROUND(v_total_amount / p_installments_count, 2);
+    v_gap_months := v_duration_months::FLOAT / p_installments_count;
 
     -- 4. Insert into bridge table
     INSERT INTO public.student_batches (student_id, batch_id, installments_count, amount_per_installment)
@@ -73,8 +76,9 @@ BEGIN
 
     -- 5. Generate invoices 
     FOR i IN 1..p_installments_count LOOP
-        -- Set due dates spanning over successive months
-        v_due_date := CURRENT_DATE + ( (i - 1) * INTERVAL '1 month' );
+        -- Set due dates spanning over dynamic gaps based on duration
+        -- i=1 adds 1 * gap, i=2 adds 2 * gap, etc.
+        v_due_date := CURRENT_DATE + ( (i * v_gap_months) * INTERVAL '1 month' );
         
         -- Generate unique invoice ID via sequence or random suffix
         v_invoice_id := 'INV-' || p_student_id || '-' || extract(epoch FROM now())::bigint || '-' || i;
@@ -135,4 +139,14 @@ EXECUTE FUNCTION public.trigger_enroll_student_in_batch();
 
 -- Apply RLS safely for student_batches
 ALTER TABLE public.student_batches ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Enable all for anon" ON public.student_batches FOR ALL USING (true);
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM pg_policies 
+        WHERE tablename = 'student_batches' 
+        AND policyname = 'Enable all for anon'
+    ) THEN
+        CREATE POLICY "Enable all for anon" ON public.student_batches FOR ALL USING (true);
+    END IF;
+END $$;

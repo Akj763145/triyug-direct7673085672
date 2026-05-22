@@ -50,6 +50,7 @@ interface Batch {
   totalBatchAmount: number;
   minInstallments: number;
   maxInstallments: number;
+  durationMonths?: number;
   status: 'Active' | 'Archived' | 'Draft';
   createdAt?: string;
   updatedAt?: string;
@@ -78,6 +79,7 @@ export default function Batches() {
     totalBatchAmount: '',
     minInstallments: '1',
     maxInstallments: '1',
+    durationMonths: '1',
     status: 'Active' as const
   });
   
@@ -178,6 +180,15 @@ export default function Batches() {
       }
     }
 
+    if (field === 'durationMonths') {
+      const durVal = parseInt(value);
+      if (!value || isNaN(durVal) || durVal < 1) {
+        tempErrors.durationMonths = 'Duration must be at least 1 month.';
+      } else {
+        delete tempErrors.durationMonths;
+      }
+    }
+
     setFormErrors(tempErrors);
   };
 
@@ -205,6 +216,11 @@ export default function Batches() {
       errors.maxInstallments = 'Max installments must represent at least 1 cycle.';
     } else if (max < min) {
       errors.maxInstallments = 'Max installments cannot fall below minimum bounds.';
+    }
+    
+    const dur = parseInt(formData.durationMonths);
+    if (isNaN(dur) || dur < 1) {
+      errors.durationMonths = 'Duration must be at least 1 month.';
     }
     
     setFormErrors(errors);
@@ -239,6 +255,7 @@ export default function Batches() {
           totalBatchAmount: Number(formData.totalBatchAmount),
           minInstallments: parseInt(formData.minInstallments),
           maxInstallments: parseInt(formData.maxInstallments),
+          durationMonths: parseInt(formData.durationMonths),
           status: formData.status
         })
       });
@@ -255,6 +272,7 @@ export default function Batches() {
           totalBatchAmount: '',
           minInstallments: '1',
           maxInstallments: '1',
+          durationMonths: '1',
           status: 'Active'
         });
         setEditingBatchId(null);
@@ -281,6 +299,7 @@ export default function Batches() {
       totalBatchAmount: batch.totalBatchAmount.toString(),
       minInstallments: batch.minInstallments.toString(),
       maxInstallments: batch.maxInstallments.toString(),
+      durationMonths: (batch.durationMonths || batch.maxInstallments).toString(),
       status: batch.status
     });
     setFormErrors({});
@@ -313,6 +332,7 @@ export default function Batches() {
       totalBatchAmount: '',
       minInstallments: '1',
       maxInstallments: '1',
+      durationMonths: '1',
       status: 'Active'
     });
     setFormErrors({});
@@ -545,7 +565,7 @@ export default function Batches() {
                 </div>
 
                 {/* Parallel installment number selectors */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                       Min Installments <span className="text-red-500">*</span>
@@ -581,6 +601,35 @@ export default function Batches() {
                       <p className="text-[9px] text-muted-foreground/75 leading-tight">Installment bounds ceiling threshold.</p>
                     )}
                   </div>
+                  
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                      Duration (Months) <span className="text-red-500">*</span>
+                    </label>
+                    <Input 
+                      type="number"
+                      min="1"
+                      value={formData.durationMonths}
+                      onChange={(e) => handleInputChange('durationMonths', e.target.value)}
+                      className={`font-black text-center h-11 bg-card/60 transition-all focus-visible:ring-primary/20 ${formErrors.durationMonths ? 'border-red-500 focus-visible:border-red-500 ring-2 ring-red-500/10' : 'border-muted/40'}`}
+                    />
+                    {formErrors.durationMonths ? (
+                      <p className="text-[9px] font-bold text-red-500 mt-1 leading-tight">{formErrors.durationMonths}</p>
+                    ) : (
+                      <p className="text-[9px] text-muted-foreground/75 leading-tight">Timeline limits installment split.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-lg bg-primary/5 border border-primary/10 space-y-1">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-primary/70">Planned EMI Spacing</label>
+                  <p className="text-xs font-bold text-foreground italic">
+                    {parseInt(formData.durationMonths) > 0 && parseInt(formData.maxInstallments) > 1 
+                      ? `${(parseInt(formData.durationMonths) / parseInt(formData.maxInstallments)).toFixed(2)} months between each EMI payment (Inst 1 is immediate).`
+                      : parseInt(formData.maxInstallments) === 1 
+                        ? 'Single payment mode (Inst 1 is immediate).' 
+                        : 'Define duration and max installments to see spacing.'}
+                  </p>
                 </div>
 
                 {/* Status selector */}
@@ -684,14 +733,17 @@ export default function Batches() {
                           key={batch.id} 
                           className={`border-b border-muted/15 h-16 hover:bg-muted/10 transition-colors ${selectedSimBatch?.id === batch.id ? 'bg-primary/5' : ''}`}
                         >
-                          <td className="px-4 py-2 max-w-[180px]">
-                            <div className="font-black text-foreground text-sm line-clamp-1">{batch.name}</div>
-                            {batch.description ? (
-                              <div className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">{batch.description}</div>
-                            ) : (
-                              <div className="text-[10px] text-muted-foreground/50 italic mt-0.5">No syllabus accents</div>
-                            )}
-                          </td>
+                            <td className="px-4 py-2 max-w-[180px]">
+                              <div className="font-black text-foreground text-sm line-clamp-1">{batch.name}</div>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <Badge variant="outline" className="text-[8px] px-1 py-0 border-primary/20 text-primary font-bold">
+                                  {batch.durationMonths || batch.maxInstallments} Months
+                                </Badge>
+                                {batch.description && (
+                                  <span className="text-[10px] text-muted-foreground line-clamp-1 truncate">{batch.description}</span>
+                                )}
+                              </div>
+                            </td>
                           <td className="px-4 py-2">
                             <span className="font-black text-foreground font-mono">₹{batch.totalBatchAmount.toLocaleString()}</span>
                             <div className="mt-0.5">
@@ -778,7 +830,8 @@ export default function Batches() {
                   Enroll Student in Program: <span className="text-primary">{selectedSimBatch.name}</span>
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Runs dynamic divide calculations. Splitting ₹{selectedSimBatch.totalBatchAmount.toLocaleString()} safely across preferred installment increments.
+                  Splitting ₹{selectedSimBatch.totalBatchAmount.toLocaleString()} across {selectedSimBatch.durationMonths || selectedSimBatch.maxInstallments} months.
+                  Each installment spreads evenly: <span className="text-primary font-bold">{((selectedSimBatch.durationMonths || selectedSimBatch.maxInstallments) / simChosenInst).toFixed(2)} months</span> between payments.
                 </CardDescription>
               </CardHeader>
 
@@ -878,7 +931,7 @@ export default function Batches() {
                                 ₹{inv.amount.toLocaleString()}
                               </div>
                               <div className="text-[10px] text-muted-foreground/80 mt-1 flex items-center gap-1 font-mono">
-                                <Calendar className="h-3 w-3 text-muted-foreground" /> Due: {inv.dueDate}
+                                <Calendar className="h-3 w-3 text-muted-foreground" /> Due {new Date(inv.dueDate + 'T12:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                               </div>
                               <div className="text-[9px] text-muted-foreground font-mono mt-1 line-clamp-1">
                                 Student: {inv.studentName}

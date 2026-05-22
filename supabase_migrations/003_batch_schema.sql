@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS batches (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     total_batch_amount DECIMAL(12,2) NOT NULL CHECK (total_batch_amount >= 0),
+    duration_months INT NOT NULL DEFAULT 1 CHECK (duration_months >= 1),
     min_installments INT NOT NULL DEFAULT 1 CHECK (min_installments >= 1),
     max_installments INT NOT NULL DEFAULT 1 CHECK (max_installments >= min_installments),
     status VARCHAR(50) DEFAULT 'Active' CHECK (status IN ('Active', 'Archived', 'Draft')),

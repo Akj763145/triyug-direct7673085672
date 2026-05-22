@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "Institute Management System",
+  "description": "A comprehensive platform for managing students, staff, attendance, and finances for educational institutions.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

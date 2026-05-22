@@ -10,6 +10,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Students } from "./pages/Students";
 import { StudentProfile } from "./pages/StudentProfile";
 import { Staff } from "./pages/Staff";
+import { StaffProfile } from "./pages/StaffProfile";
 import { Fees } from "./pages/Fees";
 import { Ledger } from "./pages/Ledger";
 import Batches from "./pages/Batches";
@@ -46,6 +47,7 @@ export default function App() {
           <Route path="/students" element={<Students />} />
           <Route path="/students/:id" element={<StudentProfile />} />
           <Route path="/staff" element={<Staff />} />
+          <Route path="/staff/:id" element={<StaffProfile />} />
           <Route path="/fees" element={<Fees />} />
           <Route path="/ledger" element={<Ledger />} />
           <Route path="/batches" element={<Batches />} />
