@@ -1,43 +1,52 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Outfit:wght@100..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Playfair Display", ui-serif, Georgia, serif;
+  --font-sans: "Outfit", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   
-  /* Artistic Flair Colors - Light & expressive */
-  --color-background: #fdfbf7; /* Warm creamy off-white */
-  --color-foreground: #2d2a26; /* Softened charcoal */
+  /* Functional Color System */
+  --color-background: #F8FAFC; /* Slate 50 - Canvas */
+  --color-foreground: #0F172A; /* Slate 900 - Dark charcoal for legibility */
   
-  --color-card: #ffffff;
-  --color-card-foreground: #2d2a26;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #0F172A;
   
-  --color-popover: #ffffff;
-  --color-popover-foreground: #2d2a26;
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #0F172A;
   
-  --color-primary: #e07a5f; /* Artistic terracotta / coral */
-  --color-primary-foreground: #ffffff;
+  --color-primary: #10B981; /* Vibrant Emerald 500 */
+  --color-primary-foreground: #FFFFFF;
   
-  --color-secondary: #f4f1ea;
-  --color-secondary-foreground: #2d2a26;
+  --color-secondary: #F1F5F9; /* Slate 100 */
+  --color-secondary-foreground: #0F172A;
   
-  --color-muted: #f4f1ea;
-  --color-muted-foreground: #8c857b;
+  --color-muted: #F8FAFC; /* Slate 50 */
+  --color-muted-foreground: #64748B; /* Slate 500 */
   
-  --color-accent: #f4f1ea;
-  --color-accent-foreground: #2d2a26;
+  --color-accent: #ECFDF5; /* Emerald 50 */
+  --color-accent-foreground: #047857; /* Emerald 700 */
   
-  --color-destructive: #e63946;
-  --color-destructive-foreground: #ffffff;
+  --color-destructive: #EF4444; /* Red 500 */
+  --color-destructive-foreground: #FFFFFF;
 
-  --color-border: #e2dcd0;
-  --color-input: #e2dcd0;
-  --color-ring: #e07a5f;
+  --color-warning: #F59E0B; /* Amber 500 */
+  --color-warning-foreground: #FFFFFF;
+
+  --color-success: #10B981; /* Emerald 500 */
+  --color-success-foreground: #FFFFFF;
   
-  --radius-sm: 0.3rem;
-  --radius: 0.6rem;
-  --radius-md: 0.6rem;
-  --radius-lg: 1.2rem;
+  --color-info: #3B82F6; /* Blue 500 */
+  --color-info-foreground: #FFFFFF;
+
+  --color-border: #E2E8F0; /* Slate 200 */
+  --color-input: #E2E8F0;
+  --color-ring: #10B981; /* Vibrant Emerald 500 */
+  
+  --radius-sm: 0.375rem;
+  --radius: 0.5rem; 
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem; 
 }
 
 @layer base {
@@ -45,9 +54,10 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground selection:bg-primary/20 selection:text-primary;
+    @apply bg-background text-foreground antialiased selection:bg-primary/20 selection:text-primary;
   }
   h1, h2, h3, h4, h5, h6 {
-    @apply font-serif tracking-tight text-foreground;
+    @apply font-sans tracking-tight text-foreground font-semibold;
   }
 }
+

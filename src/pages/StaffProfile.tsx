@@ -17,7 +17,7 @@ export function StaffProfile() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [staff, setStaff] = useState<any>(null);
-  const [designations, setDesignations] = useState<string[]>([]);
+  const [designations, setDesignations] = useState<{name: string, description: string}[]>([]);
   const [attendance, setAttendance] = useState<any[]>([]);
   
   // Edit Profile State
@@ -89,15 +89,15 @@ export function StaffProfile() {
 
     // Fetch Designations
     const { data: sdData } = await supabase.from('staff_designations')
-      .select('designation_id, designations(name)')
+      .select('designation_id, designations(name, description)')
       .eq('staff_id', staffId);
     
-    let dNames: string[] = [];
+    let dList: {name: string, description: string}[] = [];
     let dIds: string[] = [];
     if (sdData) {
-      dNames = sdData.map((d: any) => d.designations?.name).filter(Boolean);
+      dList = sdData.map((d: any) => ({ name: d.designations?.name, description: d.designations?.description })).filter((d: any) => d.name);
       dIds = sdData.map((d: any) => d.designation_id).filter(Boolean);
-      setDesignations(dNames);
+      setDesignations(dList);
     }
     
     if (sData) {
@@ -130,7 +130,25 @@ export function StaffProfile() {
       .select('*')
       .eq('staff_id', staffId)
       .order('date', { ascending: false });
-    if (attData) setAttendance(attData);
+      
+    // Fetch Holidays
+    const { data: holidays } = await supabase.from('holidays').select('*');
+
+    if (attData) {
+      let combined = [...attData];
+      if (holidays && holidays.length > 0) {
+        holidays.forEach(h => {
+          if (!combined.some(r => r.date === h.date)) {
+            combined.push({
+              date: h.date,
+              status: 'Holiday',
+              scanned_at: null
+            });
+          }
+        });
+      }
+      setAttendance(combined);
+    }
 
     // Fetch Ledger
     const { data: salData } = await supabase.from('staff_salaries')
@@ -352,9 +370,14 @@ export function StaffProfile() {
                       <div className="space-y-4">
                         <div className="space-y-1">
                            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground block mb-2">Assigned Roles</label>
-                           <div className="flex flex-wrap gap-1.5">
+                           <div className="flex flex-col gap-2">
                              {designations.length === 0 ? <p className="text-sm italic text-muted-foreground">No roles assigned.</p> :
-                               designations.map(d => <Badge key={d} variant="secondary" className="px-3 py-1 font-medium">{d}</Badge>)
+                               designations.map((d, i) => (
+                                 <div key={i} className="flex flex-col items-start border border-border/50 bg-muted/20 p-2.5 rounded-lg">
+                                   <Badge variant="secondary" className="px-2 py-0.5 font-medium">{d.name}</Badge>
+                                   {d.description && <span className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{d.description}</span>}
+                                 </div>
+                               ))
                              }
                            </div>
                         </div>

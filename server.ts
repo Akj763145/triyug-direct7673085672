@@ -34,10 +34,18 @@ async function runAutomatedAttendanceCheck() {
         checkDate.setDate(checkDate.getDate() - i);
         const dateStr = checkDate.toISOString().split('T')[0];
         
-        // Skip Sundays (optional, but school is usually closed. 
-        // If the user wants 7 days literally, we should respect it, 
-        // but often we don't want to mark absent on holidays. 
-        // For now, literal "if not marked, mark absent" as requested.)
+        // 0. CHECK IF GLOBAL HOLIDAY
+        const { data: isHoliday } = await supabase.from('holidays').select('id').eq('date', dateStr).maybeSingle();
+        if (isHoliday) {
+            console.log(`[SYS-ATTENDANCE] Skipping holiday date: ${dateStr}`);
+            continue;
+        }
+
+        // Skip Sundays
+        if (checkDate.getDay() === 0) {
+            console.log(`[SYS-ATTENDANCE] Skipping Sunday: ${dateStr}`);
+            continue;
+        }
 
         // 1. Process STAFF Attendance
         const { data: staffList } = await supabase.from('staff').select('id');

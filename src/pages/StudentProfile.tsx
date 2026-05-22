@@ -164,8 +164,24 @@ export function StudentProfile() {
       .eq('student_id', id)
       .order('date', { ascending: false });
 
+    const { data: holidays } = await supabase.from('holidays').select('*');
+
     if (!error && data) {
-      setAttendance(data as AttendanceRecord[]);
+      let combined = [...(data as AttendanceRecord[])];
+      if (holidays && holidays.length > 0) {
+        holidays.forEach(h => {
+          // ensure no duplicates if someone managed to mark holiday manually before
+          if (!combined.some(r => r.date === h.date)) {
+             combined.push({
+               date: h.date,
+               status: 'Holiday',
+               subject: 'General',
+               marked_by: 'System'
+             } as any);
+          }
+        });
+      }
+      setAttendance(combined);
     }
   }, [id, supabase]);
 
@@ -1305,6 +1321,7 @@ export function StudentProfile() {
                       <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Present</div>
                       <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-destructive"></div> Absent</div>
                       <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-yellow-500"></div> Late</div>
+                      <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-purple-500"></div> Holiday</div>
                    </div>
                 </CardHeader>
                 <CardContent>
@@ -1346,6 +1363,7 @@ export function StudentProfile() {
                                 ${status === 'Present' ? 'bg-emerald-500/10 border-emerald-500/30' : 
                                   status === 'Absent' ? 'bg-destructive/10 border-destructive/30' : 
                                   status === 'Late' ? 'bg-yellow-500/10 border-yellow-500/30' : 
+                                  status === 'Holiday' ? 'bg-purple-500/10 border-purple-500/30' : 
                                   status === 'Excused' ? 'bg-blue-500/10 border-blue-500/30' : 'bg-muted/5'}`}
                             >
                                <span className="text-[10px] font-mono opacity-50">{dayNum}</span>
@@ -1353,7 +1371,8 @@ export function StudentProfile() {
                                  <div className={`w-1.5 h-1.5 rounded-full mt-1 ${
                                    status === 'Present' ? 'bg-emerald-500' : 
                                    status === 'Absent' ? 'bg-destructive' : 
-                                   status === 'Late' ? 'bg-yellow-500' : 'bg-blue-500'
+                                   status === 'Late' ? 'bg-yellow-500' : 
+                                   status === 'Holiday' ? 'bg-purple-500' : 'bg-blue-500'
                                  }`}></div>
                                )}
                             </button>
@@ -1381,6 +1400,7 @@ export function StudentProfile() {
                            { name: 'Present', value: monthlyRecords.filter(r => r.status === 'Present').length },
                            { name: 'Absent', value: monthlyRecords.filter(r => r.status === 'Absent').length },
                            { name: 'Late', value: monthlyRecords.filter(r => r.status === 'Late').length },
+                           { name: 'Holiday', value: monthlyRecords.filter(r => r.status === 'Holiday').length },
                            { name: 'Excused', value: monthlyRecords.filter(r => r.status === 'Excused').length }
                          ];
                       })()}>
@@ -1400,6 +1420,7 @@ export function StudentProfile() {
                                { name: 'Present', color: '#10b981' },
                                { name: 'Absent', color: '#ef4444' },
                                { name: 'Late', color: '#f59e0b' },
+                               { name: 'Holiday', color: '#8b5cf6' },
                                { name: 'Excused', color: '#3b82f6' }
                              ].map((entry, index) => (
                                <Cell key={`cell-${index}`} fill={entry.color} />

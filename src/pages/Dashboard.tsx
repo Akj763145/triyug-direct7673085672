@@ -9,6 +9,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger 
 } from "../components/ui/dialog";
 import { QRScanner } from "../components/QRScanner";
+import { HolidayManager } from "../components/HolidayManager";
 import { supabase } from "../lib/supabase";
 import { Button } from "../components/ui/button";
 import { motion, AnimatePresence } from "motion/react";
@@ -392,6 +393,10 @@ export function Dashboard() {
         </Card>
       </div>
 
+      <div className="grid grid-cols-1 gap-4">
+         <HolidayManager />
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
         {/* Chart */}
         <Card className="col-span-4">
@@ -402,15 +407,15 @@ export function Dashboard() {
             {chartData && chartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2dcd0" />
-                  <XAxis dataKey="month" stroke="#8c857b" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#8c857b" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `₹${value/1000}k`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                  <XAxis dataKey="month" stroke="#64748B" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#64748B" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `₹${value/1000}k`} />
                   <Tooltip 
-                    contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2dcd0', color: '#2d2a26' }}
-                    itemStyle={{ color: '#e07a5f' }}
+                    contentStyle={{ backgroundColor: '#FFFFFF', borderColor: '#E2E8F0', color: '#0F172A', borderRadius: '8px' }}
+                    itemStyle={{ color: '#10B981' }}
                   />
-                  <Line type="monotone" dataKey="revenue" stroke="#e07a5f" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                  <Line type="monotone" dataKey="expenses" stroke="#e63946" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                  <Line type="monotone" dataKey="revenue" stroke="#3B82F6" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                  <Line type="monotone" dataKey="expenses" stroke="#10B981" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
