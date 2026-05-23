@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
@@ -6,7 +6,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { Search, UserPlus, QrCode, PlusCircle, CheckCircle, ShieldAlert, X } from "lucide-react";
+import { Search, UserPlus, QrCode, PlusCircle, CheckCircle, ShieldAlert, X, User, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "../components/ui/dialog";
 import { supabase } from "../lib/supabase";
 import { QRCodeSVG } from "qrcode.react";
@@ -27,6 +27,7 @@ interface StaffMember {
   phone: string;
   status: string;
   designations: string[];
+  profile_picture?: string | null;
 }
 
 export function Staff() {
@@ -82,7 +83,9 @@ export function Staff() {
     pensionAccounts: "",
     emergencyContact: "",
     signedContract: false,
-    equipmentRequirements: ""
+    equipmentRequirements: "",
+    expectedArrivalTime: "09:00",
+    profilePicture: ""
   });
 
   // Scanner Simulator
@@ -121,7 +124,8 @@ export function Staff() {
             email: s.email,
             phone: s.phone,
             status: s.status,
-            designations: labels
+            designations: labels,
+            profile_picture: s.profile_picture
           };
         });
       }
@@ -155,12 +159,7 @@ export function Staff() {
   const handleCreateStaff = async () => {
     if (!staffForm.firstName || !staffForm.lastName) return;
 
-    // Supabase will generate ID via trigger if not provided (EMP-XXXX)
-    // But to get it back quickly in our basic app flow without custom RPC, we can just fetch latest or generate one
-    const tempId = 'EMP-' + Math.floor(Math.random() * 9000 + 1000);
-
-    const { error } = await supabase.from('staffs').insert([{
-      id: tempId,
+    const { data: insertedStaff, error } = await supabase.from('staffs').insert([{
       first_name: staffForm.firstName,
       last_name: staffForm.lastName,
       email: staffForm.email,
@@ -179,12 +178,14 @@ export function Staff() {
       pension_accounts: staffForm.pensionAccounts,
       emergency_contact: staffForm.emergencyContact,
       signed_contract: staffForm.signedContract,
-      equipment_requirements: staffForm.equipmentRequirements
-    }]);
+      equipment_requirements: staffForm.equipmentRequirements,
+      expected_arrival_time: staffForm.expectedArrivalTime,
+      profile_picture: staffForm.profilePicture || null
+    }]).select('id').single();
 
-    if (!error && staffForm.designationIds.length > 0) {
+    if (!error && insertedStaff && staffForm.designationIds.length > 0) {
       const joins = staffForm.designationIds.map(dId => ({
-        staff_id: tempId,
+        staff_id: insertedStaff.id,
         designation_id: dId
       }));
       await supabase.from('staff_designations').insert(joins);
@@ -196,11 +197,30 @@ export function Staff() {
         firstName: "", lastName: "", email: "", phone: "", status: "Active", designationIds: [],
         dateOfBirth: "", permanentAddress: "", currentAddress: "", governmentId: "", educationQualifications: "",
         employmentHistory: "", referenceContacts: "", backgroundScreening: "", bankAccountDetails: "",
-        taxDeclarations: "", pensionAccounts: "", emergencyContact: "", signedContract: false, equipmentRequirements: ""
+        taxDeclarations: "", pensionAccounts: "", emergencyContact: "", signedContract: false, equipmentRequirements: "",
+        expectedArrivalTime: "09:00", profilePicture: ""
       });
       loadData();
     } else {
       alert("Error generating staff: " + error?.message);
+    }
+  };
+
+  const handleDeleteStaff = async (e: React.MouseEvent, sId: string) => {
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to permanently delete this staff member? This will clear them from any assigned batches database-wide.")) return;
+    
+    try {
+      const { error } = await supabase.from('staffs').delete().eq('id', sId);
+      if (error) {
+        console.error("Error deleting staff:", error);
+        alert("Failed to delete staff member: " + error.message);
+      } else {
+        loadData();
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("An error occurred while deleting staff.");
     }
   };
 
@@ -234,16 +254,33 @@ export function Staff() {
     }
 
     try {
+      // Calculate if late
+      let finalStatus = "Present";
+      
+      const staffMember = await supabase.from('staffs').select('expected_arrival_time').eq('id', sId).single();
+      if (staffMember.data?.expected_arrival_time) {
+        const expectedTimeStr = staffMember.data.expected_arrival_time; // HH:mm:ss
+        const [expH, expM] = expectedTimeStr.split(':').map(Number);
+        
+        const now = new Date();
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        const limitMinutes = expH * 60 + expM + 20; // 20 minute grace period
+        
+        if (currentMinutes > limitMinutes) {
+          finalStatus = "Late";
+        }
+      }
+
       const { error } = await supabase.from('staff_attendance').insert([{
         staff_id: sId,
-        status: "Present",
-        date: new Date().toISOString().split('T')[0],
+        status: finalStatus,
+        date: new Date().toLocaleDateString('en-CA'),
       }]);
 
       if (error) {
         setScanMessage({ msg: "Attendance already logged today, or error.", type: 'error' });
       } else {
-        setScanMessage({ msg: `SUCCESS! Logged Present for ${validStaff.first_name} ${validStaff.last_name}`, type: 'success' });
+        setScanMessage({ msg: `SUCCESS! Logged ${finalStatus} for ${validStaff.first_name} ${validStaff.last_name}`, type: 'success' });
       }
     } catch (e) {
       setScanMessage({ msg: "System Error.", type: 'error' });
@@ -385,24 +422,53 @@ export function Staff() {
                 </TabsList>
 
                 <TabsContent value="personal" className="space-y-4 pt-4 outline-none">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">First Name*</label>
-                      <Input value={staffForm.firstName} onChange={e => setStaffForm({...staffForm, firstName: e.target.value})} placeholder="Jane" />
+                  <div className="flex flex-col sm:flex-row gap-6">
+                    <div className="flex-shrink-0 flex flex-col items-center space-y-2">
+                       <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground w-full text-center">Profile Photo</label>
+                       <div className="w-24 h-24 rounded-full border-2 border-dashed border-border flex items-center justify-center overflow-hidden bg-muted/30 relative group">
+                         {staffForm.profilePicture ? (
+                            <img src={staffForm.profilePicture} alt="Profile" className="w-full h-full object-cover" />
+                         ) : (
+                            <div className="flex pl-4 pr-4 flex-col items-center justify-center text-muted-foreground">
+                               <PlusCircle className="h-6 w-6 opacity-30" />
+                            </div>
+                         )}
+                         <input 
+                            type="file" 
+                            accept="image/*" 
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            onChange={(e) => {
+                               const file = e.target.files?.[0];
+                               if (file) {
+                                 const reader = new FileReader();
+                                 reader.onloadend = () => setStaffForm({...staffForm, profilePicture: reader.result as string});
+                                 reader.readAsDataURL(file);
+                               }
+                            }}
+                         />
+                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Last Name*</label>
-                      <Input value={staffForm.lastName} onChange={e => setStaffForm({...staffForm, lastName: e.target.value})} placeholder="Doe" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Email Address</label>
-                      <Input value={staffForm.email} onChange={e => setStaffForm({...staffForm, email: e.target.value})} placeholder="jane@org.com" />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Phone Number</label>
-                      <Input value={staffForm.phone} onChange={e => setStaffForm({...staffForm, phone: e.target.value})} placeholder="+91..." />
+                    <div className="flex-grow space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">First Name*</label>
+                          <Input value={staffForm.firstName} onChange={e => setStaffForm({...staffForm, firstName: e.target.value})} placeholder="Jane" />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Last Name*</label>
+                          <Input value={staffForm.lastName} onChange={e => setStaffForm({...staffForm, lastName: e.target.value})} placeholder="Doe" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Email Address</label>
+                          <Input value={staffForm.email} onChange={e => setStaffForm({...staffForm, email: e.target.value})} placeholder="jane@org.com" />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Phone Number</label>
+                          <Input value={staffForm.phone} onChange={e => setStaffForm({...staffForm, phone: e.target.value})} placeholder="+91..." />
+                        </div>
+                      </div>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
@@ -476,16 +542,22 @@ export function Staff() {
                     <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Equipment & Access Needs</label>
                     <Input value={staffForm.equipmentRequirements} onChange={e => setStaffForm({...staffForm, equipmentRequirements: e.target.value})} placeholder="Laptop specs, keycard access, software licenses..." />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Status</label>
-                    <select 
-                      className="w-full h-9 px-3 py-1 bg-background border border-input rounded-md text-sm"
-                      value={staffForm.status} 
-                      onChange={e => setStaffForm({...staffForm, status: e.target.value})}
-                    >
-                      <option value="Active">Active Duty</option>
-                      <option value="On Leave">On Leave</option>
-                    </select>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Expected Arrival Time</label>
+                      <Input type="time" value={staffForm.expectedArrivalTime} onChange={e => setStaffForm({...staffForm, expectedArrivalTime: e.target.value})} />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Status</label>
+                      <select 
+                        className="w-full h-9 px-3 py-1 bg-background border border-input rounded-md text-sm"
+                        value={staffForm.status} 
+                        onChange={e => setStaffForm({...staffForm, status: e.target.value})}
+                      >
+                        <option value="Active">Active Duty</option>
+                        <option value="On Leave">On Leave</option>
+                      </select>
+                    </div>
                   </div>
                   <div className="pt-4 border-t mt-4 border-border">
                     <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3 block">Assign Multiple Designations</label>
@@ -528,8 +600,17 @@ export function Staff() {
                <div className="font-serif text-zinc-100 font-bold uppercase text-[10px] tracking-[4px]">Staff ID Permit</div>
             </div>
             <div className="p-8 flex flex-col items-center">
+              {selectedStaff?.profile_picture ? (
+                 <div className="w-24 h-24 rounded-full border-4 border-white shadow-xl mb-4 overflow-hidden -mt-16 bg-zinc-100 z-10 relative">
+                    <img src={selectedStaff.profile_picture} alt="Profile" className="w-full h-full object-cover" />
+                 </div>
+              ) : (
+                <div className="w-24 h-24 rounded-full border-4 border-white shadow-xl mb-4 overflow-hidden -mt-16 bg-zinc-100 z-10 relative flex items-center justify-center">
+                    <User className="h-10 w-10 text-zinc-300" />
+                </div>
+              )}
               <div className="bg-white p-3 border-2 border-zinc-100 rounded-xl mb-6 shadow-sm">
-                 {selectedStaff && <QRCodeSVG value={selectedStaff.id} size={160} level="H" fgColor="#09090b" />}
+                 {selectedStaff && <QRCodeSVG value={selectedStaff.id} size={110} level="H" fgColor="#09090b" />}
               </div>
               <h2 className="font-bold text-xl text-zinc-900 mb-1">{selectedStaff?.first_name} {selectedStaff?.last_name}</h2>
               <div className="font-mono text-zinc-400 font-bold text-xs tracking-widest">{selectedStaff?.id}</div>
@@ -603,8 +684,19 @@ export function Staff() {
                     >
                       <TableCell className="font-mono text-xs font-bold text-muted-foreground/75 w-[120px]">{staff.id}</TableCell>
                       <TableCell>
-                        <div className="font-bold text-sm">{staff.first_name} {staff.last_name}</div>
-                        <div className="text-[10px] text-muted-foreground">{staff.phone} • {staff.email || 'No email provided'}</div>
+                        <div className="flex items-center gap-3">
+                          {staff.profile_picture ? (
+                            <img src={staff.profile_picture} alt="Profile" className="w-10 h-10 rounded-full object-cover border border-border shrink-0" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-full bg-muted border border-border flex items-center justify-center shrink-0">
+                               <User className="h-4 w-4 text-muted-foreground opacity-50" />
+                            </div>
+                          )}
+                          <div>
+                            <div className="font-bold text-sm">{staff.first_name} {staff.last_name}</div>
+                            <div className="text-[10px] text-muted-foreground">{staff.phone} • {staff.email || 'No email provided'}</div>
+                          </div>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
@@ -621,18 +713,28 @@ export function Staff() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground opacity-50 group-hover:opacity-100 transition-opacity"
-                          onClick={(e) => { 
-                            e.stopPropagation();
-                            setSelectedStaff(staff); 
-                            setIsQrViewOpen(true); 
-                          }}
-                        >
-                          <QrCode className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground opacity-50 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => { 
+                              e.stopPropagation();
+                              setSelectedStaff(staff); 
+                              setIsQrViewOpen(true); 
+                            }}
+                          >
+                            <QrCode className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="h-8 w-8 p-0 text-red-500 hover:text-red-750 hover:bg-red-50 opacity-50 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => handleDeleteStaff(e, staff.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </motion.tr>
                   ))

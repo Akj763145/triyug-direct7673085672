@@ -23,7 +23,8 @@ export function calculateInstallments(
   totalAmount: number,
   installmentCount: number,
   batchDurationInMonths: number,
-  startDate: string = new Date().toISOString().split('T')[0]
+  startDate: string = new Date().toISOString().split('T')[0],
+  percentages?: number[]
 ): InstallmentPlanItem[] {
   if (totalAmount <= 0) {
     throw new Error("Total batch amount must be greater than zero to split installments.");
@@ -34,6 +35,13 @@ export function calculateInstallments(
   if (batchDurationInMonths <= 0) {
     throw new Error("Batch duration must be greater than zero.");
   }
+  
+  if (percentages && percentages.length === installmentCount) {
+    const totalPercent = percentages.reduce((a, b) => a + Number(b), 0);
+    if (totalPercent !== 100) {
+      throw new Error(`Total percentage must be 100, got ${totalPercent}.`);
+    }
+  }
 
   const baseAmount = Math.floor(totalAmount / installmentCount);
   const remainder = totalAmount - (baseAmount * installmentCount);
@@ -41,18 +49,28 @@ export function calculateInstallments(
   const plans: InstallmentPlanItem[] = [];
   const baseDate = new Date(startDate);
   
-  // Calculate gap between each installment in days (assuming 1 month = 30 days)
-  // e.g. 10 months * 30 days = 300 days / 4 installments = 75 days per interval
   const totalDays = batchDurationInMonths * 30;
-  // User explicitly wants (10 months / 4 EMIs) -> 2.5 months -> 75 days gap
   const gapInDays = installmentCount > 1 ? Math.floor(totalDays / installmentCount) : 0;
 
-  for (let i = 1; i <= installmentCount; i++) {
-    // Add remainder to the very first installment to ensure absolute correctness
-    const amount = i === 1 ? (baseAmount + remainder) : baseAmount;
+  let computedAmounts = [];
+  if (percentages && percentages.length === installmentCount) {
+    let sum = 0;
+    for (let i = 0; i < installmentCount - 1; i++) {
+        const amt = Math.floor(totalAmount * (Number(percentages[i]) / 100));
+        computedAmounts.push(amt);
+        sum += amt;
+    }
+    // Final installment gets the remaining amount
+    computedAmounts.push(Math.max(0, totalAmount - sum));
+  } else {
+    for (let i = 1; i <= installmentCount; i++) {
+        computedAmounts.push(i === 1 ? (baseAmount + remainder) : baseAmount);
+    }
+  }
 
-    // First installment is due on startDate (Day 0)
-    // Subsequent installments are offset by (i - 1) * gapInDays
+  for (let i = 1; i <= installmentCount; i++) {
+    const amount = computedAmounts[i - 1];
+
     const currentDate = new Date(baseDate);
     if (i > 1) {
       currentDate.setDate(currentDate.getDate() + ((i - 1) * gapInDays));

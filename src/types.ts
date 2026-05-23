@@ -3,9 +3,21 @@ export interface Batch {
   name: string;
   description?: string;
   totalBatchAmount: number;
-  minInstallments: number;
-  maxInstallments: number;
-  status: 'Active' | 'Archived' | 'Draft';
+  minInstallments?: number;
+  maxInstallments?: number;
+  durationMonths?: number;
+  facultyAssign?: string;
+  thumbnail?: string;
+  totalSeats?: number;
+  availableSeats?: number;
+  subject?: string;
+  streamCategory?: string;
+  boardTarget?: string;
+  teachingMedium?: string;
+  timing?: string;
+  batchMode?: string;
+  curriculumModules?: { title: string; topics: string }[];
+  status: 'Active' | 'Archived' | 'Draft' | 'Running (Active Admissions)';
   createdAt?: string;
   updatedAt?: string;
 }

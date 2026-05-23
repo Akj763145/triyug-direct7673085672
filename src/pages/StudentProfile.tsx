@@ -69,6 +69,8 @@ const resizeImage = (file: File, maxWidth: number = 300, maxHeight: number = 300
   });
 };
 
+const today = new Date();
+
 export function StudentProfile() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -100,6 +102,8 @@ export function StudentProfile() {
   const [adjustmentAmount, setAdjustmentAmount] = useState<string>('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [showInstallments, setShowInstallments] = useState(false);
+  const [enrolledBatches, setEnrolledBatches] = useState<{id: string, name: string, duration_months?: number}[]>([]);
+  const [selectedBatchId, setSelectedBatchId] = useState<string>('all');
   const [receiptData, setReceiptData] = useState<any>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
 
@@ -346,41 +350,46 @@ export function StudentProfile() {
           type: 'Primary'
         }));
 
-        // --- SELF-HEALING LOGIC FOR LEGACY SEQUENTIAL DATES ---
+        // --- SELF-HEALING LOGIC FOR ENROLLED BATCHES ---
         try {
           const { data: sBatches } = await supabase.from('student_batches').select('batch_id, enrolled_at').eq('student_id', id);
           if (sBatches && sBatches.length > 0) {
-            const { data: batches } = await supabase.from('batches').select('id, name, duration_months').eq('id', sBatches[0].batch_id);
+            const batchIds = sBatches.map(sb => sb.batch_id);
+            const { data: batches } = await supabase.from('batches').select('id, name, duration_months').in('id', batchIds);
+            
             if (batches && batches.length > 0) {
-              const batch = batches[0];
-              const primaryInvs = mappedInvoices
-                .filter(i => (i.title.includes(batch.name) || i.title.includes('Installment')) && !i.title.toLowerCase().includes('incidental'))
-                .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+              setEnrolledBatches(batches);
               
-              if (primaryInvs.length > 1 && batch.duration_months > 0) {
-                // Gap in days = (Months * 30) / Count
-                const totalDays = batch.duration_months * 30;
-                const gapInDays = Math.floor(totalDays / primaryInvs.length);
+              // Run self-healing for each batch's installments
+              for (const batch of batches) {
+                const primaryInvs = mappedInvoices
+                  .filter(i => i.title.includes(batch.name) && !i.title.toLowerCase().includes('incidental'))
+                  .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
                 
-                // Base date is the date of the first installment
-                const baseDate = new Date(primaryInvs[0].dueDate);
-                
-                primaryInvs.forEach((pi, index) => {
-                  const currentDate = new Date(baseDate.getTime());
-                  if (index > 0) {
-                    currentDate.setDate(currentDate.getDate() + (index * gapInDays));
-                  }
+                if (primaryInvs.length > 1 && batch.duration_months && batch.duration_months > 0) {
+                  // Gap in days = (Months * 30) / Count
+                  const totalDays = batch.duration_months * 30;
+                  const gapInDays = Math.floor(totalDays / primaryInvs.length);
                   
-                  const targetIso = currentDate.toISOString().split('T')[0];
+                  // Base date is the date of the first installment
+                  const baseDate = new Date(primaryInvs[0].dueDate);
                   
-                  const target = mappedInvoices.find(m => m.id === pi.id);
-                  if (target && target.dueDate !== targetIso) {
-                    // Update in UI
-                    target.dueDate = targetIso;
-                    // Silent fix to DB
-                    supabase.from('invoices').update({ due_date: targetIso }).eq('id', pi.id).then();
-                  }
-                });
+                  primaryInvs.forEach((pi, index) => {
+                    const currentDate = new Date(baseDate.getTime());
+                    if (index > 0) {
+                      currentDate.setDate(currentDate.getDate() + (index * gapInDays));
+                    }
+                    
+                    const targetIso = currentDate.toISOString().split('T')[0];
+                    const target = mappedInvoices.find(m => m.id === pi.id);
+                    if (target && target.dueDate !== targetIso) {
+                      // Update in UI
+                      target.dueDate = targetIso;
+                      // Silent fix to DB
+                      supabase.from('invoices').update({ due_date: targetIso }).eq('id', pi.id).then();
+                    }
+                  });
+                }
               }
             }
           }
@@ -827,38 +836,62 @@ export function StudentProfile() {
     );
   }
 
-  const today = new Date();
-  
-  const computedInvoices = invoices.map(inv => {
-    const amountPaid = transactions
-      .filter(t => (t.invoiceId === inv.id || t.invoice_id === inv.id) && (t.status === 'Success' || t.status === 'success'))
-      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-    
-    let computedStatus = inv.status;
-    const isPastDue = new Date(inv.dueDate).getTime() < today.getTime();
-    
-    if (inv.status === 'Paid' || amountPaid >= inv.totalAmount) {
-      computedStatus = 'Paid';
-    } else if (inv.status === 'Partial' || amountPaid > 0) {
-      computedStatus = 'Partial';
-    } else if (isPastDue) {
-      computedStatus = 'Overdue';
-    } else {
-      computedStatus = 'Upcoming';
-    }
+  const computedInvoices = useMemo(() => {
+    return invoices.map(inv => {
+      const amountPaid = transactions
+        .filter(t => (t.invoiceId === inv.id || t.invoice_id === inv.id) && (t.status?.toLowerCase() === 'success'))
+        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+      
+      let computedStatus = inv.status;
+      const isPastDue = new Date(inv.dueDate).getTime() < today.getTime();
+      
+      if (inv.status === 'Paid' || amountPaid >= inv.totalAmount) {
+        computedStatus = 'Paid';
+      } else if (inv.status === 'Partial' || amountPaid > 0) {
+        computedStatus = 'Partial';
+      } else if (isPastDue) {
+        computedStatus = 'Overdue';
+      } else {
+        computedStatus = 'Upcoming';
+      }
 
-    return {
-      ...inv,
-      computedStatus,
-      amountPaid,
-      amountDue: inv.totalAmount - amountPaid
-    };
-  });
+      return {
+        ...inv,
+        computedStatus,
+        amountPaid,
+        amountDue: (inv.totalAmount || 0) - amountPaid
+      };
+    });
+  }, [invoices, transactions]);
 
-  const totalInvoiceAmount = computedInvoices.reduce((acc, curr) => acc + curr.totalAmount, 0);
-  const totalPaid = transactions.filter(t => t.status === 'Success').reduce((acc, curr) => acc + curr.amount, 0);
+  const filteredInvoices = useMemo(() => {
+    if (!computedInvoices) return [];
+    if (selectedBatchId === 'all') return computedInvoices;
+    const batch = enrolledBatches.find(b => b.id === selectedBatchId);
+    if (!batch) return computedInvoices;
+    return computedInvoices.filter(inv => {
+      const title = (inv.title || '').toLowerCase();
+      const batchName = (batch.name || '').toLowerCase();
+      return title.includes(batchName);
+    });
+  }, [computedInvoices, selectedBatchId, enrolledBatches]);
+
+  const totalInvoiceAmount = useMemo(() => 
+    filteredInvoices.reduce((acc, curr) => acc + (Number(curr.totalAmount) || 0), 0)
+  , [filteredInvoices]);
+
+  const totalPaid = useMemo(() => 
+    transactions
+      .filter(t => t.status?.toLowerCase() === 'success' && (!t.invoiceId || filteredInvoices.some(fi => fi.id === t.invoiceId)))
+      .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0)
+  , [transactions, filteredInvoices]);
+
   const totalDue = totalInvoiceAmount - totalPaid;
-  const nextDueDate = computedInvoices.filter(i => (i.computedStatus === 'Upcoming' || i.computedStatus === 'Overdue' || i.computedStatus === 'Partial')).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0]?.dueDate || 'None';
+  const nextDueDate = useMemo(() => {
+    const pending = filteredInvoices.filter(i => (i.computedStatus === 'Upcoming' || i.computedStatus === 'Overdue' || i.computedStatus === 'Partial'));
+    if (pending.length === 0) return 'None';
+    return [...pending].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0]?.dueDate || 'None';
+  }, [filteredInvoices]);
 
   const attendanceRate = (attendance.filter(a => a.status === 'Present').length / attendance.length) * 100;
   const submissionRate = (assignments.filter(a => a.status !== 'Pending').length / assignments.length) * 100;
@@ -1632,7 +1665,7 @@ export function StudentProfile() {
                      <div className="w-full bg-muted/40 rounded-full h-2 overflow-hidden border border-muted/20">
                         <motion.div 
                            initial={{ width: 0 }}
-                           animate={{ width: `${(totalPaid / (totalPaid + totalDue)) * 100}%` }}
+                           animate={{ width: `${((totalPaid / (totalPaid + totalDue || 1)) * 100) || 0}%` }}
                            className="bg-gradient-to-r from-primary to-cyan-400 h-2 rounded-full shadow-[0_0_10px_rgba(var(--primary),0.4)]"
                         />
                      </div>
@@ -1645,21 +1678,40 @@ export function StudentProfile() {
             <Card className="border-muted/20 bg-card/40 backdrop-blur-md relative overflow-hidden group">
                <div className="absolute top-0 left-0 w-1 bg-cyan-500 h-full"></div>
                <CardHeader 
-                 className="pb-2 cursor-pointer hover:bg-muted/10 transition-colors"
-                 onClick={() => setShowInstallments(!showInstallments)}
+                 className="pb-2"
                >
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center justify-between w-full">
                       <div className="flex items-center gap-2">
                         <Clock className="h-3 w-3" /> INSTALLMENTS SECTION
                       </div>
-                      {computedInvoices.length > 1 && (
-                        <div className="text-[8px] font-mono text-primary/60 lowercase italic pr-4">
-                           spread across entire batch duration
+                      {enrolledBatches.length > 0 && (
+                        <div className="flex gap-1 pr-4">
+                           <Button 
+                             variant={selectedBatchId === 'all' ? "default" : "outline"} 
+                             size="sm" 
+                             onClick={() => setSelectedBatchId('all')}
+                             className="h-6 text-[8px] font-black uppercase tracking-widest px-2"
+                           >
+                              ALL
+                           </Button>
+                           {enrolledBatches.map(batch => (
+                             <Button 
+                               key={batch.id}
+                               variant={selectedBatchId === batch.id ? "default" : "outline"} 
+                               size="sm" 
+                               onClick={() => setSelectedBatchId(batch.id)}
+                               className={`h-6 text-[8px] font-black uppercase tracking-widest px-2 ${selectedBatchId === batch.id ? 'bg-cyan-500 hover:bg-cyan-600' : ''}`}
+                             >
+                                {batch.name}
+                             </Button>
+                           ))}
                         </div>
                       )}
                     </CardTitle>
-                    {showInstallments ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                    <div className="cursor-pointer" onClick={() => setShowInstallments(!showInstallments)}>
+                       {showInstallments ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                    </div>
                   </div>
                </CardHeader>
                <CardContent className="pt-4">
@@ -1668,19 +1720,19 @@ export function StudentProfile() {
                         className="text-center py-8 cursor-pointer group/summary" 
                         onClick={() => setShowInstallments(true)}
                      >
-                        <div className="text-3xl font-black text-foreground mb-1 group-hover/summary:text-cyan-500 transition-colors">{computedInvoices.length}</div>
+                        <div className="text-3xl font-black text-foreground mb-1 group-hover/summary:text-cyan-500 transition-colors">{filteredInvoices.length}</div>
                         <p className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground">Total Installments</p>
                         <div className="mt-6 flex flex-wrap justify-center gap-2">
                            <div className="px-4 py-2 rounded-xl bg-emerald-500/5 border border-emerald-500/10 text-center min-w-[75px] shadow-sm">
-                              <div className="text-lg font-black text-emerald-600 leading-none">{computedInvoices.filter(i => i.computedStatus === 'Paid').length}</div>
+                              <div className="text-lg font-black text-emerald-600 leading-none">{filteredInvoices.filter(i => i.computedStatus === 'Paid').length}</div>
                               <div className="text-[8px] uppercase font-black tracking-widest text-emerald-600/60 mt-1">Paid</div>
                            </div>
                            <div className="px-4 py-2 rounded-xl bg-red-500/5 border border-red-500/10 text-center min-w-[75px] shadow-sm">
-                              <div className="text-lg font-black text-red-600 leading-none">{computedInvoices.filter(i => i.computedStatus === 'Overdue').length}</div>
+                              <div className="text-lg font-black text-red-600 leading-none">{filteredInvoices.filter(i => i.computedStatus === 'Overdue').length}</div>
                               <div className="text-[8px] uppercase font-black tracking-widest text-red-600/60 mt-1">Overdue</div>
                            </div>
                            <div className="px-4 py-2 rounded-xl bg-slate-500/5 border border-slate-500/10 text-center min-w-[75px] shadow-sm">
-                              <div className="text-lg font-black text-slate-600 leading-none">{computedInvoices.filter(i => i.computedStatus === 'Upcoming' || i.computedStatus === 'Partial').length}</div>
+                              <div className="text-lg font-black text-slate-600 leading-none">{filteredInvoices.filter(i => i.computedStatus === 'Upcoming' || i.computedStatus === 'Partial').length}</div>
                               <div className="text-[8px] uppercase font-black tracking-widest text-slate-600/60 mt-1">Pending</div>
                            </div>
                         </div>
@@ -1688,10 +1740,10 @@ export function StudentProfile() {
                   ) : (
                      <div className="max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
                         <div className="space-y-4 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[1px] before:bg-muted/30">
-                          {computedInvoices.length === 0 ? (
+                          {filteredInvoices.length === 0 ? (
                              <div className="text-center py-6 text-muted-foreground text-[10px] uppercase font-bold tracking-widest animate-pulse">No Installments Found</div>
                           ) : (
-                            computedInvoices.map((inst, i) => (
+                            filteredInvoices.map((inst, i) => (
                             <div key={inst.id} className="flex items-start gap-4 group/item pl-1">
                                <div className={`h-6 w-6 rounded-full flex items-center justify-center shrink-0 z-10 border-2 transition-all group-hover/item:scale-110 ${inst.computedStatus === 'Paid' ? 'bg-background border-success text-success shadow-[0_0_10px_rgba(22,163,74,0.2)]' : inst.computedStatus === 'Overdue' ? 'bg-background border-destructive text-destructive shadow-[0_0_10px_rgba(220,38,38,0.2)]' : inst.computedStatus === 'Partial' ? 'bg-background border-warning text-warning shadow-[0_0_10px_rgba(217,119,6,0.2)]' : 'bg-background border-muted text-muted-foreground'}`}>
                                   {inst.computedStatus === 'Paid' ? <CheckCircle2 className="h-3 w-3" /> : (inst.computedStatus === 'Overdue' || inst.computedStatus === 'Partial') ? <AlertCircle className="h-3 w-3" /> : <div className="h-1.5 w-1.5 bg-current rounded-full" />}

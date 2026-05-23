@@ -57,7 +57,9 @@ export function StaffProfile() {
     pensionAccounts: "",
     emergencyContact: "",
     signedContract: false,
-    equipmentRequirements: ""
+    equipmentRequirements: "",
+    expectedArrivalTime: "09:00",
+    profilePicture: ""
   });
 
   // Ledger state
@@ -137,7 +139,9 @@ export function StaffProfile() {
           pensionAccounts: sData.pension_accounts || "",
           emergencyContact: sData.emergency_contact || "",
           signedContract: sData.signed_contract || false,
-          equipmentRequirements: sData.equipment_requirements || ""
+          equipmentRequirements: sData.equipment_requirements || "",
+          expectedArrivalTime: sData.expected_arrival_time ? sData.expected_arrival_time.substring(0, 5) : "09:00",
+          profilePicture: sData.profile_picture || ""
        });
     }
 
@@ -207,12 +211,27 @@ export function StaffProfile() {
   
   const handleMarkAttendance = async (status: 'Present' | 'Absent' | 'Late' | 'Excused' | 'Holiday') => {
     if (!id) return;
-    const date = new Date().toISOString().split('T')[0];
+    const date = new Date().toLocaleDateString('en-CA');
+    
+    let finalStatus = status;
+    if (status === 'Present' && staff?.expected_arrival_time) {
+      const expectedTimeStr = staff.expected_arrival_time; // HH:mm:ss
+      const [expH, expM] = expectedTimeStr.split(':').map(Number);
+      
+      const now = new Date();
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      const limitMinutes = expH * 60 + expM + 20; // 20 minute grace period
+      
+      if (currentMinutes > limitMinutes) {
+        finalStatus = 'Late';
+      }
+    }
+
     try {
       const { error } = await supabase.from('staff_attendance').upsert({
         staff_id: id,
         date: date,
-        status: status
+        status: finalStatus
       }, { onConflict: 'staff_id,date' });
       if (error) throw error;
       loadData(id);
@@ -246,7 +265,9 @@ export function StaffProfile() {
        pension_accounts: staffForm.pensionAccounts,
        emergency_contact: staffForm.emergencyContact,
        signed_contract: staffForm.signedContract,
-       equipment_requirements: staffForm.equipmentRequirements
+       equipment_requirements: staffForm.equipmentRequirements,
+       expected_arrival_time: staffForm.expectedArrivalTime,
+       profile_picture: staffForm.profilePicture || null
     }).eq('id', id);
 
     if (staffUpdateErr) {
@@ -267,6 +288,22 @@ export function StaffProfile() {
 
     setIsEditDialogOpen(false);
     loadData(id!);
+  };
+
+  const handleDeleteProfile = async () => {
+    if (!confirm("Are you sure you want to permanently delete this staff member? This will clear them from any assigned batches database-wide.")) return;
+    try {
+      const { error } = await supabase.from('staffs').delete().eq('id', id);
+      if (error) {
+        console.error("Error deleting staff profile:", error);
+        alert("Failed to delete staff: " + error.message);
+      } else {
+        navigate('/staff');
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("An unexpected error occurred while deleting the staff profile.");
+    }
   };
 
   const toggleDesignation = (dId: string) => {
@@ -467,7 +504,7 @@ export function StaffProfile() {
   // Attendance formatting for chart
   const attChartData = [...attendance].reverse().slice(0, 14).map(a => ({
     date: new Date(a.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-    present: a.status === 'Present' ? 1 : 0
+    present: (a.status === 'Present' || a.status === 'Late') ? 1 : 0
   }));
 
   // Ledger calculations
@@ -479,10 +516,17 @@ export function StaffProfile() {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-20">
-       <div className="flex items-center gap-3">
+       <div className="flex items-center gap-4">
          <Button variant="ghost" size="icon" onClick={() => navigate('/staff')} className="shrink-0 -ml-2 text-muted-foreground hover:text-foreground">
            <ArrowLeft className="h-5 w-5" />
          </Button>
+         {staff.profile_picture ? (
+           <img src={staff.profile_picture} alt="Profile" className="w-16 h-16 rounded-full object-cover border-2 border-border shadow-md shrink-0" />
+         ) : (
+           <div className="w-16 h-16 rounded-full bg-muted border-2 border-border flex items-center justify-center shrink-0 shadow-sm">
+             <UserCircle2 className="h-9 w-9 text-muted-foreground opacity-40 shrink-0" />
+           </div>
+         )}
          <div>
            <div className="flex items-center gap-2">
              <h2 className="text-2xl font-bold tracking-tight">{staff.first_name} {staff.last_name}</h2>
@@ -503,47 +547,152 @@ export function StaffProfile() {
           </TabsList>
           
           <div className="mt-6">
-             <TabsContent value="profile" className="mt-0 outline-none">
-               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-                 <Card>
-                   <CardHeader className="flex flex-row items-center justify-between pb-4">
-                     <CardTitle className="text-sm font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2 mt-1.5">
+             <TabsContent value="profile" className="mt-0 outline-none space-y-6">
+               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex justify-end gap-2 relative z-10 -mb-10 mr-4 mt-2">
+                 <Button variant="outline" size="sm" onClick={() => setIsEditDialogOpen(true)} className="bg-background/80 backdrop-blur">
+                   <Edit2 className="h-3.5 w-3.5 mr-1.5" /> Edit Profile
+                 </Button>
+                 <Button variant="outline" size="sm" onClick={handleDeleteProfile} className="bg-background/80 backdrop-blur text-red-500 hover:text-red-700 hover:bg-red-50 border-red-200">
+                   <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Delete Profile
+                 </Button>
+               </motion.div>
+               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 {/* Personnel Information */}
+                 <Card className="md:col-span-1">
+                   <CardHeader className="pb-4">
+                     <CardTitle className="text-sm font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2">
                        <UserCircle2 className="h-4 w-4" /> Personnel Information
                      </CardTitle>
-                     <Button variant="outline" size="sm" onClick={() => setIsEditDialogOpen(true)}>
-                       <Edit2 className="h-3.5 w-3.5 mr-1.5" /> Edit Profile
-                     </Button>
                    </CardHeader>
-                   <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      <div className="space-y-4">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Full Name</label>
-                          <div className="font-medium">{staff.first_name} {staff.last_name}</div>
+                   <CardContent className="space-y-4">
+                     <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-1">
+                         <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Full Name</label>
+                         <div className="font-medium">{staff.first_name} {staff.last_name}</div>
+                       </div>
+                       <div className="space-y-1">
+                         <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Date of Birth</label>
+                         <div className="font-medium">{staff.date_of_birth ? new Date(staff.date_of_birth).toLocaleDateString() : 'N/A'}</div>
+                       </div>
+                     </div>
+                     <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-1">
+                         <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Email Address</label>
+                         <div className="font-medium truncate" title={staff.email}>{staff.email || 'N/A'}</div>
+                       </div>
+                       <div className="space-y-1">
+                         <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Phone Number</label>
+                         <div className="font-medium">{staff.phone || 'N/A'}</div>
+                       </div>
+                     </div>
+                     <div className="space-y-1">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Govt ID</label>
+                       <div className="font-medium">{staff.government_id || 'N/A'}</div>
+                     </div>
+                     <div className="space-y-1">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Current Address</label>
+                       <div className="text-sm">{staff.current_address || 'N/A'}</div>
+                     </div>
+                     <div className="space-y-1">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Permanent Address</label>
+                       <div className="text-sm">{staff.permanent_address || 'N/A'}</div>
+                     </div>
+                     <div className="space-y-1 pt-2">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground block mb-2">Assigned Roles</label>
+                        <div className="flex flex-col gap-2">
+                          {designations.length === 0 ? <p className="text-sm italic text-muted-foreground">No roles assigned.</p> :
+                            designations.map((d, i) => (
+                              <div key={i} className="flex flex-col items-start border border-border/50 bg-muted/20 p-2.5 rounded-lg">
+                                <Badge variant="secondary" className="px-2 py-0.5 font-medium">{d.name}</Badge>
+                                {d.description && <span className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{d.description}</span>}
+                              </div>
+                            ))
+                          }
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Email Address</label>
-                          <div className="font-medium">{staff.email || 'N/A'}</div>
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Phone Number</label>
-                          <div className="font-medium">{staff.phone || 'N/A'}</div>
-                        </div>
-                      </div>
-                      <div className="space-y-4">
-                        <div className="space-y-1">
-                           <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground block mb-2">Assigned Roles</label>
-                           <div className="flex flex-col gap-2">
-                             {designations.length === 0 ? <p className="text-sm italic text-muted-foreground">No roles assigned.</p> :
-                               designations.map((d, i) => (
-                                 <div key={i} className="flex flex-col items-start border border-border/50 bg-muted/20 p-2.5 rounded-lg">
-                                   <Badge variant="secondary" className="px-2 py-0.5 font-medium">{d.name}</Badge>
-                                   {d.description && <span className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{d.description}</span>}
-                                 </div>
-                               ))
-                             }
-                           </div>
-                        </div>
-                      </div>
+                     </div>
+                   </CardContent>
+                 </Card>
+
+                 {/* Professional Background */}
+                 <Card className="md:col-span-1">
+                   <CardHeader className="pb-4">
+                     <CardTitle className="text-sm font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2">
+                       <FileText className="h-4 w-4" /> Professional Background
+                     </CardTitle>
+                   </CardHeader>
+                   <CardContent className="space-y-4">
+                     <div className="space-y-1">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Educational Qualifications</label>
+                       <div className="text-sm whitespace-pre-wrap">{staff.education_qualifications || 'N/A'}</div>
+                     </div>
+                     <div className="space-y-1">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Employment History</label>
+                       <div className="text-sm whitespace-pre-wrap">{staff.employment_history || 'N/A'}</div>
+                     </div>
+                     <div className="space-y-1">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Reference Contacts</label>
+                       <div className="text-sm whitespace-pre-wrap">{staff.reference_contacts || 'N/A'}</div>
+                     </div>
+                     <div className="space-y-1">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Background Screening</label>
+                       <div className="text-sm">{staff.background_screening || 'N/A'}</div>
+                     </div>
+                   </CardContent>
+                 </Card>
+
+                 {/* Financial & Accounts */}
+                 <Card className="md:col-span-1">
+                   <CardHeader className="pb-4">
+                     <CardTitle className="text-sm font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2">
+                       <Wallet className="h-4 w-4" /> Financial & Accounts
+                     </CardTitle>
+                   </CardHeader>
+                   <CardContent className="space-y-4">
+                     <div className="space-y-1">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Bank Account Details</label>
+                       <div className="text-sm whitespace-pre-wrap">{staff.bank_account_details || 'N/A'}</div>
+                     </div>
+                     <div className="space-y-1">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tax Declarations</label>
+                       <div className="text-sm whitespace-pre-wrap">{staff.tax_declarations || 'N/A'}</div>
+                     </div>
+                     <div className="space-y-1">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Pension / Provident Fund Accounts</label>
+                       <div className="text-sm whitespace-pre-wrap">{staff.pension_accounts || 'N/A'}</div>
+                     </div>
+                   </CardContent>
+                 </Card>
+
+                 {/* Operations & Compliance */}
+                 <Card className="md:col-span-1">
+                   <CardHeader className="pb-4">
+                     <CardTitle className="text-sm font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2">
+                       <Settings className="h-4 w-4" /> Operations & Compliance
+                     </CardTitle>
+                   </CardHeader>
+                   <CardContent className="space-y-4">
+                     <div className="space-y-1">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Emergency Contact</label>
+                       <div className="text-sm whitespace-pre-wrap">{staff.emergency_contact || 'N/A'}</div>
+                     </div>
+                     <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-1">
+                         <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Expected Arrival</label>
+                         <div className="font-medium">{staff.expected_arrival_time ? staff.expected_arrival_time.substring(0, 5) : 'N/A'}</div>
+                       </div>
+                       <div className="space-y-1">
+                         <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Contract Status</label>
+                         <div>
+                            <Badge variant={staff.signed_contract ? 'success' : 'outline'} className="text-[10px] shadow-none">
+                              {staff.signed_contract ? 'Signed' : 'Pending'}
+                            </Badge>
+                         </div>
+                       </div>
+                     </div>
+                     <div className="space-y-1">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Equipment & Access Requirements</label>
+                       <div className="text-sm whitespace-pre-wrap">{staff.equipment_requirements || 'N/A'}</div>
+                     </div>
                    </CardContent>
                  </Card>
                </motion.div>
@@ -1169,24 +1318,53 @@ export function StaffProfile() {
             </TabsList>
 
             <TabsContent value="personal" className="space-y-4 pt-4 outline-none">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">First Name*</label>
-                  <Input value={staffForm.firstName} onChange={e => setStaffForm({...staffForm, firstName: e.target.value})} placeholder="Jane" />
+              <div className="flex flex-col sm:flex-row gap-6">
+                <div className="flex-shrink-0 flex flex-col items-center space-y-2">
+                   <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground w-full text-center">Profile Photo</label>
+                   <div className="w-24 h-24 rounded-full border-2 border-dashed border-border flex items-center justify-center overflow-hidden bg-muted/30 relative group">
+                     {staffForm.profilePicture ? (
+                        <img src={staffForm.profilePicture} alt="Profile" className="w-full h-full object-cover" />
+                     ) : (
+                        <div className="flex pl-4 pr-4 flex-col items-center justify-center text-muted-foreground">
+                           <PlusCircle className="h-6 w-6 opacity-30" />
+                        </div>
+                     )}
+                     <input 
+                        type="file" 
+                        accept="image/*" 
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        onChange={(e) => {
+                           const file = e.target.files?.[0];
+                           if (file) {
+                             const reader = new FileReader();
+                             reader.onloadend = () => setStaffForm({...staffForm, profilePicture: reader.result as string});
+                             reader.readAsDataURL(file);
+                           }
+                        }}
+                     />
+                   </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Last Name*</label>
-                  <Input value={staffForm.lastName} onChange={e => setStaffForm({...staffForm, lastName: e.target.value})} placeholder="Doe" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Email Address</label>
-                  <Input value={staffForm.email} onChange={e => setStaffForm({...staffForm, email: e.target.value})} placeholder="jane@org.com" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Phone Number</label>
-                  <Input value={staffForm.phone} onChange={e => setStaffForm({...staffForm, phone: e.target.value})} placeholder="+91..." />
+                <div className="flex-grow space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">First Name*</label>
+                      <Input value={staffForm.firstName} onChange={e => setStaffForm({...staffForm, firstName: e.target.value})} placeholder="Jane" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Last Name*</label>
+                      <Input value={staffForm.lastName} onChange={e => setStaffForm({...staffForm, lastName: e.target.value})} placeholder="Doe" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Email Address</label>
+                      <Input value={staffForm.email} onChange={e => setStaffForm({...staffForm, email: e.target.value})} placeholder="jane@org.com" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Phone Number</label>
+                      <Input value={staffForm.phone} onChange={e => setStaffForm({...staffForm, phone: e.target.value})} placeholder="+91..." />
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -1260,17 +1438,23 @@ export function StaffProfile() {
                 <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Equipment & Access Needs</label>
                 <Input value={staffForm.equipmentRequirements} onChange={e => setStaffForm({...staffForm, equipmentRequirements: e.target.value})} placeholder="Laptop specs, keycard access, software licenses..." />
               </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Status</label>
-                <select 
-                  className="flex w-full h-10 px-3 py-2 bg-background border border-input rounded-md text-sm"
-                  value={staffForm.status} 
-                  onChange={e => setStaffForm({...staffForm, status: e.target.value})}
-                >
-                  <option value="Active">Active Duty</option>
-                  <option value="On Leave">On Leave</option>
-                  <option value="Inactive">Inactive</option>
-                </select>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Expected Arrival Time</label>
+                  <Input type="time" value={staffForm.expectedArrivalTime} onChange={e => setStaffForm({...staffForm, expectedArrivalTime: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Status</label>
+                  <select 
+                    className="flex w-full h-10 px-3 py-2 bg-background border border-input rounded-md text-sm"
+                    value={staffForm.status} 
+                    onChange={e => setStaffForm({...staffForm, status: e.target.value})}
+                  >
+                    <option value="Active">Active Duty</option>
+                    <option value="On Leave">On Leave</option>
+                    <option value="Inactive">Inactive</option>
+                  </select>
+                </div>
               </div>
               <div className="pt-4 border-t mt-4 border-border">
                 <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3 block">Manage Designations</label>

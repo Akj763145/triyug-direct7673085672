@@ -31,6 +31,17 @@ model Batch {
   totalBatchAmount Float        @map("total_batch_amount")
   minInstallments  Int          @default(1) @map("min_installments")
   maxInstallments  Int          @default(1) @map("max_installments")
+  durationMonths   Int          @default(1) @map("duration_months")
+  facultyAssign    String?      @map("faculty_assign")
+  thumbnail        String?      @db.Text
+  totalSeats       Int?         @default(0) @map("total_seats")
+  availableSeats   Int?         @default(0) @map("available_seats")
+  subject          String?
+  streamCategory   String?      @map("stream_category")
+  boardTarget      String?      @map("board_target")
+  teachingMedium   String?      @map("teaching_medium")
+  timing           String?
+  batchMode        String?      @map("batch_mode")
   status           BatchStatus  @default(Active)
   createdAt        DateTime     @default(now()) @map("created_at")
   updatedAt        DateTime     @updatedAt @map("updated_at")

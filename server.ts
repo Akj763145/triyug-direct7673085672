@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
+import fs from "fs";
 import { calculateInstallments } from "./src/lib/installmentCalculator";
 import cron from "node-cron";
 import { createClient } from "@supabase/supabase-js";
@@ -48,7 +49,7 @@ async function runAutomatedAttendanceCheck() {
         }
 
         // 1. Process STAFF Attendance
-        const { data: staffList } = await supabase.from('staff').select('id');
+        const { data: staffList } = await supabase.from('staffs').select('id');
         const { data: staffAttendance } = await supabase.from('staff_attendance').select('staff_id').eq('date', dateStr);
         
         if (staffList) {
@@ -112,6 +113,13 @@ setTimeout(() => {
 }, 5000); // Wait for initialization
 
 // In-Memory Database fallbacks for Preview Mode when Supabase connection parameters are not provided
+const streamCategoriesStore: any[] = [
+  { id: 'cat-1', name: 'Science (PCM/PCB)', createdAt: new Date().toISOString() },
+  { id: 'cat-2', name: 'Commerce', createdAt: new Date().toISOString() },
+  { id: 'cat-3', name: 'Arts / Humanities', createdAt: new Date().toISOString() },
+  { id: 'cat-4', name: 'Foundation (Class 6-10)', createdAt: new Date().toISOString() }
+];
+
 const activeBatchesStore: any[] = [
   {
     id: 'batch-demo',
@@ -140,8 +148,10 @@ const activeBatchesStore: any[] = [
 const enrolledStudentsStore: Array<{
   id: string;
   studentId: string;
+  studentName?: string;
   batchId: string;
   chosenInstallments: number;
+  totalAmountProcessed?: number;
   createdAt: string;
 }> = [];
 
@@ -165,7 +175,7 @@ const invoicesStore: Array<{
  * - maxInstallments < minInstallments
  */
 const validateBatchMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  const { name, totalBatchAmount, minInstallments, maxInstallments, durationMonths } = req.body;
+  const { name, totalBatchAmount, minInstallments, maxInstallments, durationMonths, totalSeats } = req.body;
 
   if (!name || typeof name !== "string" || !name.trim()) {
     return res.status(400).json({ error: "Batch Name is a required field." });
@@ -178,102 +188,506 @@ const validateBatchMiddleware = (req: Request, res: Response, next: NextFunction
     });
   }
 
-  const minInst = parseInt(minInstallments);
-  const maxInst = parseInt(maxInstallments);
   const duration = parseInt(durationMonths);
-
-  if (isNaN(minInst) || minInst < 1) {
-    return res.status(400).json({ 
-      error: "Validation Failed: min_installments must be greater than or equal to 1." 
-    });
-  }
-
-  if (isNaN(maxInst) || maxInst < minInst) {
-    return res.status(400).json({ 
-      error: "Validation Failed: max_installments cannot be less than min_installments." 
-    });
-  }
-  
   if (isNaN(duration) || duration < 1) {
     return res.status(400).json({ 
       error: "Validation Failed: duration_months must be greater than or equal to 1." 
     });
   }
 
+  const seats = parseInt(totalSeats);
+  if (totalSeats !== undefined && (isNaN(seats) || seats < 1)) {
+    return res.status(400).json({
+      error: "Validation Failed: totalSeats must be greater than or equal to 1."
+    });
+  }
+
   next();
 };
+
+// --- STREAM CATEGORIES API ROUTES ---
+
+app.get("/api/stream-categories", async (req: Request, res: Response) => {
+  if (supabase) {
+    const { data, error } = await supabase.from('stream_categories').select('*').order('created_at', { ascending: true });
+    if (error) {
+      console.error("Error fetching stream categories:", error);
+      return res.status(500).json({ error: "Failed to fetch stream categories" });
+    }
+    res.json({ success: true, data });
+  } else {
+    res.json({ success: true, data: streamCategoriesStore });
+  }
+});
+
+app.post("/api/stream-categories", async (req: Request, res: Response) => {
+  const { name } = req.body;
+  if (!name || name.trim() === '') {
+    return res.status(400).json({ error: "Name is required" });
+  }
+  const newCat = {
+    id: `cat-${Math.floor(Math.random() * 1000000)}`,
+    name: name.trim(),
+    created_at: new Date().toISOString()
+  };
+
+  if (supabase) {
+    const { data, error } = await supabase.from('stream_categories').insert([{ name: newCat.name }]).select();
+    if (error) {
+       console.error("Error creating stream category:", error);
+       return res.status(500).json({ error: "Failed to create category it may already exist.", details: error });
+    }
+    res.status(201).json({ success: true, data: data[0] });
+  } else {
+    if (streamCategoriesStore.find(c => c.name.toLowerCase() === newCat.name.toLowerCase())) {
+        return res.status(400).json({ error: "Category already exists" });
+    }
+    const memCat = { id: newCat.id, name: newCat.name, createdAt: newCat.created_at };
+    streamCategoriesStore.push(memCat);
+    res.status(201).json({ success: true, data: memCat });
+  }
+});
+
+app.put("/api/stream-categories/:id", async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { name } = req.body;
+  if (!name || name.trim() === '') {
+    return res.status(400).json({ error: "Name is required" });
+  }
+
+  if (supabase) {
+    const { data, error } = await supabase.from('stream_categories').update({ name: name.trim() }).eq('id', id).select();
+    if (error) {
+       return res.status(500).json({ error: "Failed to update category" });
+    }
+    if (!data || data.length === 0) return res.status(404).json({ error: "Category not found" });
+    res.json({ success: true, data: data[0] });
+  } else {
+    const cat = streamCategoriesStore.find(c => c.id === id);
+    if (!cat) return res.status(404).json({ error: "Category not found" });
+    cat.name = name.trim();
+    res.json({ success: true, data: cat });
+  }
+});
+
+app.delete("/api/stream-categories/:id", async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (supabase) {
+    const { data, error } = await supabase.from('stream_categories').delete().eq('id', id).select();
+    if (error) return res.status(500).json({ error: "Failed to delete category" });
+    if (!data || data.length === 0) return res.status(404).json({ error: "Category not found" });
+    res.json({ success: true, data: data[0] });
+  } else {
+    const index = streamCategoriesStore.findIndex(c => c.id === id);
+    if (index === -1) return res.status(404).json({ error: "Category not found" });
+    const deleted = streamCategoriesStore.splice(index, 1);
+    res.json({ success: true, data: deleted[0] });
+  }
+});
 
 // --- BATCH API ROUTES ---
 
 // GET /api/batches
-app.get("/api/batches", (req: Request, res: Response) => {
-  res.json({ success: true, count: activeBatchesStore.length, data: activeBatchesStore });
+app.get("/api/batches", async (req: Request, res: Response) => {
+  if (supabase) {
+    const { data, error } = await supabase.from('batches').select('*').order('created_at', { ascending: false });
+    if (error) {
+      console.error("Error fetching batches:", error);
+      return res.status(500).json({ error: "Failed to fetch batches" });
+    }
+    // Rename database snake_case fields to camelCase to match what the client expects
+    const formattedData = data.map(b => ({
+      ...b,
+      totalBatchAmount: b.total_batch_amount,
+      minInstallments: b.min_installments,
+      maxInstallments: b.max_installments,
+      durationMonths: b.duration_months,
+      facultyAssign: b.faculty_assign,
+      totalSeats: b.total_seats,
+      availableSeats: b.available_seats,
+      streamCategory: b.stream_category,
+      boardTarget: b.board_target,
+      teachingMedium: b.teaching_medium,
+      batchMode: b.batch_mode,
+      curriculumModules: b.curriculum_modules,
+      createdAt: b.created_at,
+      updatedAt: b.updated_at
+    }));
+    res.json({ success: true, count: formattedData.length, data: formattedData });
+  } else {
+    res.json({ success: true, count: activeBatchesStore.length, data: activeBatchesStore });
+  }
 });
 
 // POST /api/batches (Validated securely)
-app.post("/api/batches", validateBatchMiddleware, (req: Request, res: Response) => {
-  const { name, description, totalBatchAmount, minInstallments, maxInstallments, durationMonths, status } = req.body;
+app.post("/api/batches", validateBatchMiddleware, async (req: Request, res: Response) => {
+  const { 
+    name, description, totalBatchAmount, minInstallments, maxInstallments, 
+    durationMonths, status, facultyAssign, thumbnail, totalSeats, availableSeats,
+    subject, streamCategory, boardTarget, teachingMedium, timing, batchMode, curriculumModules
+  } = req.body;
   
+  const finalMinInstallments = isNaN(parseInt(minInstallments)) ? 1 : parseInt(minInstallments);
+  let finalMaxInstallments = isNaN(parseInt(maxInstallments)) ? 1 : parseInt(maxInstallments);
+  if (finalMaxInstallments < finalMinInstallments) {
+    finalMaxInstallments = finalMinInstallments;
+  }
+  const finalDurationMonths = isNaN(parseInt(durationMonths)) ? finalMaxInstallments : parseInt(durationMonths);
+  const finalTotalSeats = isNaN(parseInt(totalSeats)) ? 0 : parseInt(totalSeats);
+  
+  let finalAvailableSeats = finalTotalSeats;
+  if (availableSeats !== undefined && availableSeats !== null) {
+    const val = parseInt(availableSeats);
+    if (!isNaN(val)) {
+      finalAvailableSeats = val;
+    }
+  }
+
+  let dbStatus = "Active";
+  if (status === "Archived" || status === "Draft") {
+    dbStatus = status;
+  }
+
   const newBatch = {
     id: `batch-${Math.floor(Math.random() * 1000000)}`,
     name: name.trim(),
     description: description || "",
-    totalBatchAmount: Number(totalBatchAmount),
-    minInstallments: parseInt(minInstallments),
-    maxInstallments: parseInt(maxInstallments),
-    durationMonths: parseInt(durationMonths) || parseInt(maxInstallments),
-    status: status || "Active",
-    createdAt: new Date().toISOString()
+    total_batch_amount: Number(totalBatchAmount),
+    min_installments: finalMinInstallments,
+    max_installments: finalMaxInstallments,
+    duration_months: finalDurationMonths >= 1 ? finalDurationMonths : 1,
+    faculty_assign: facultyAssign || null,
+    thumbnail: thumbnail || null,
+    total_seats: finalTotalSeats,
+    available_seats: finalAvailableSeats,
+    subject: subject || null,
+    stream_category: streamCategory || null,
+    board_target: boardTarget || null,
+    teaching_medium: teachingMedium || null,
+    timing: timing || null,
+    batch_mode: batchMode || null,
+    curriculum_modules: curriculumModules || [],
+    status: dbStatus
   };
 
-  activeBatchesStore.unshift(newBatch);
-  res.status(201).json({ success: true, message: "Batch created successfully", data: newBatch });
+  if (supabase) {
+    const { id, ...batchWithoutId } = newBatch;
+    const { data, error } = await supabase.from('batches').insert([batchWithoutId]).select();
+    if (error) {
+      console.error("Error inserting batch:", error);
+      return res.status(500).json({ error: "Failed to create batch in database" });
+    }
+    // Convert to camelCase format for the client, including the real UUID generated by supabase
+    const formattedData = {
+      ...data[0],
+      totalBatchAmount: data[0].total_batch_amount,
+      minInstallments: data[0].min_installments,
+      maxInstallments: data[0].max_installments,
+      durationMonths: data[0].duration_months,
+      facultyAssign: data[0].faculty_assign,
+      totalSeats: data[0].total_seats,
+      availableSeats: data[0].available_seats,
+      streamCategory: data[0].stream_category,
+      boardTarget: data[0].board_target,
+      teachingMedium: data[0].teaching_medium,
+      batchMode: data[0].batch_mode,
+      curriculumModules: data[0].curriculum_modules,
+      createdAt: data[0].created_at,
+      updatedAt: data[0].updated_at
+    };
+    res.status(201).json({ success: true, message: "Batch created successfully", data: formattedData });
+  } else {
+    // Fallback to in-memory store
+    const memBatch = {
+      id: newBatch.id,
+      name: newBatch.name,
+      description: newBatch.description,
+      totalBatchAmount: newBatch.total_batch_amount,
+      minInstallments: newBatch.min_installments,
+      maxInstallments: newBatch.max_installments,
+      durationMonths: newBatch.duration_months,
+      facultyAssign: newBatch.faculty_assign,
+      thumbnail: newBatch.thumbnail,
+      totalSeats: newBatch.total_seats,
+      availableSeats: newBatch.available_seats,
+      subject: newBatch.subject,
+      streamCategory: newBatch.stream_category,
+      boardTarget: newBatch.board_target,
+      teachingMedium: newBatch.teaching_medium,
+      timing: newBatch.timing,
+      batchMode: newBatch.batch_mode,
+      curriculumModules: newBatch.curriculum_modules,
+      status: newBatch.status,
+      createdAt: new Date().toISOString()
+    };
+    activeBatchesStore.unshift(memBatch);
+    res.status(201).json({ success: true, message: "Batch created successfully", data: memBatch });
+  }
 });
 
 // DELETE /api/batches/:id
-app.delete("/api/batches/:id", (req: Request, res: Response) => {
+app.delete("/api/batches/:id", async (req: Request, res: Response) => {
   const { id } = req.params;
-  const index = activeBatchesStore.findIndex(b => b.id === id);
-  if (index === -1) {
-    return res.status(404).json({ error: "Batch record not found." });
+  if (supabase) {
+    const { data, error } = await supabase.from('batches').delete().eq('id', id).select();
+    if (error) {
+       console.error("Error deleting batch:", error);
+       return res.status(500).json({ error: "Failed to delete batch from database" });
+    }
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: "Batch record not found in database." });
+    }
+    res.json({ success: true, message: "Batch deleted successfully", data: data[0] });
+  } else {
+    const index = activeBatchesStore.findIndex(b => b.id === id);
+    if (index === -1) {
+      return res.status(404).json({ error: "Batch record not found." });
+    }
+    const deleted = activeBatchesStore.splice(index, 1);
+    res.json({ success: true, message: "Batch deleted successfully", data: deleted[0] });
   }
-  const deleted = activeBatchesStore.splice(index, 1);
-  res.json({ success: true, message: "Batch deleted successfully", data: deleted[0] });
 });
 
 // PUT /api/batches/:id
-app.put("/api/batches/:id", validateBatchMiddleware, (req: Request, res: Response) => {
+app.put("/api/batches/:id", validateBatchMiddleware, async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { name, description, totalBatchAmount, minInstallments, maxInstallments, durationMonths, status } = req.body;
+  const { 
+    name, description, totalBatchAmount, minInstallments, maxInstallments, 
+    durationMonths, status, facultyAssign, thumbnail, totalSeats, availableSeats,
+    subject, streamCategory, boardTarget, teachingMedium, timing, batchMode, curriculumModules
+  } = req.body;
   
-  const batch = activeBatchesStore.find(b => b.id === id);
-  if (!batch) {
-    return res.status(404).json({ error: "Batch record not found." });
+  const finalMinInstallments = isNaN(parseInt(minInstallments)) ? 1 : parseInt(minInstallments);
+  let finalMaxInstallments = isNaN(parseInt(maxInstallments)) ? 1 : parseInt(maxInstallments);
+  if (finalMaxInstallments < finalMinInstallments) {
+    finalMaxInstallments = finalMinInstallments;
+  }
+  const finalDurationMonths = isNaN(parseInt(durationMonths)) ? finalMaxInstallments : parseInt(durationMonths);
+  const finalTotalSeats = isNaN(parseInt(totalSeats)) ? 0 : parseInt(totalSeats);
+  
+  let finalAvailableSeats = finalTotalSeats;
+  if (availableSeats !== undefined && availableSeats !== null) {
+    const val = parseInt(availableSeats);
+    if (!isNaN(val)) {
+      finalAvailableSeats = val;
+    }
   }
 
-  batch.name = name.trim();
-  batch.description = description || "";
-  batch.totalBatchAmount = Number(totalBatchAmount);
-  batch.minInstallments = parseInt(minInstallments);
-  batch.maxInstallments = parseInt(maxInstallments);
-  batch.durationMonths = parseInt(durationMonths) || parseInt(maxInstallments);
-  batch.status = status || batch.status;
-  batch.updatedAt = new Date().toISOString();
+  let dbStatus = "Active";
+  if (status === "Archived" || status === "Draft") {
+    dbStatus = status;
+  }
 
-  res.json({ success: true, message: "Batch configured successfully", data: batch });
+  const updateData = {
+    name: name.trim(),
+    description: description || "",
+    total_batch_amount: Number(totalBatchAmount),
+    min_installments: finalMinInstallments,
+    max_installments: finalMaxInstallments,
+    duration_months: finalDurationMonths >= 1 ? finalDurationMonths : 1,
+    faculty_assign: facultyAssign !== undefined ? facultyAssign : null,
+    thumbnail: thumbnail !== undefined ? thumbnail : null,
+    total_seats: finalTotalSeats,
+    available_seats: finalAvailableSeats,
+    subject: subject !== undefined ? subject : null,
+    stream_category: streamCategory !== undefined ? streamCategory : null,
+    board_target: boardTarget !== undefined ? boardTarget : null,
+    teaching_medium: teachingMedium !== undefined ? teachingMedium : null,
+    timing: timing !== undefined ? timing : null,
+    batch_mode: batchMode !== undefined ? batchMode : null,
+    curriculum_modules: curriculumModules !== undefined ? curriculumModules : [],
+    status: dbStatus
+  };
+
+  if (supabase) {
+    const { data, error } = await supabase.from('batches').update(updateData).eq('id', id).select();
+    if (error) {
+       console.error("Error updating batch:", error);
+       return res.status(500).json({ error: "Failed to update batch in database" });
+    }
+    if (!data || data.length === 0) {
+       return res.status(404).json({ error: "Batch record not found in database." });
+    }
+    const formattedData = {
+      ...data[0],
+      totalBatchAmount: data[0].total_batch_amount,
+      minInstallments: data[0].min_installments,
+      maxInstallments: data[0].max_installments,
+      durationMonths: data[0].duration_months,
+      facultyAssign: data[0].faculty_assign,
+      totalSeats: data[0].total_seats,
+      availableSeats: data[0].available_seats,
+      streamCategory: data[0].stream_category,
+      boardTarget: data[0].board_target,
+      teachingMedium: data[0].teaching_medium,
+      batchMode: data[0].batch_mode,
+      curriculumModules: data[0].curriculum_modules,
+      createdAt: data[0].created_at,
+      updatedAt: data[0].updated_at
+    };
+    res.json({ success: true, message: "Batch configured successfully", data: formattedData });
+  } else {
+    const batch = activeBatchesStore.find(b => b.id === id);
+    if (!batch) {
+      return res.status(404).json({ error: "Batch record not found." });
+    }
+
+    batch.name = updateData.name;
+    batch.description = updateData.description;
+    batch.totalBatchAmount = updateData.total_batch_amount;
+    batch.minInstallments = updateData.min_installments;
+    batch.maxInstallments = updateData.max_installments;
+    batch.durationMonths = updateData.duration_months;
+    batch.facultyAssign = updateData.faculty_assign;
+    batch.thumbnail = updateData.thumbnail;
+    batch.totalSeats = updateData.total_seats;
+    batch.availableSeats = updateData.available_seats;
+    batch.subject = updateData.subject;
+    batch.streamCategory = updateData.stream_category;
+    batch.boardTarget = updateData.board_target;
+    batch.teachingMedium = updateData.teaching_medium;
+    batch.timing = updateData.timing;
+    batch.batchMode = updateData.batch_mode;
+    batch.curriculumModules = updateData.curriculum_modules;
+    batch.status = updateData.status || batch.status;
+    batch.updatedAt = new Date().toISOString();
+
+    res.json({ success: true, message: "Batch configured successfully", data: batch });
+  }
+});
+
+// PUT /api/batches/:id/emi-policies
+app.put("/api/batches/:id/emi-policies", async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { schemes, prices } = req.body;
+  
+  let batch;
+  if (supabase) {
+    const { data } = await supabase.from('batches').select('*').eq('id', id).single();
+    if (data) {
+       batch = {
+         id: data.id,
+         name: data.name,
+         totalBatchAmount: data.total_batch_amount,
+         durationMonths: data.duration_months,
+         maxInstallments: data.max_installments
+       };
+    }
+  } else {
+    batch = activeBatchesStore.find(b => b.id === id);
+  }
+
+  if (!batch) return res.status(404).json({ error: "Batch not found" });
+
+  let updatedInvoicesCount = 0;
+
+  // 1. Process local mock enrollments
+  const batchEnrollments = enrolledStudentsStore.filter(e => e.batchId === id);
+  for (const enrollment of batchEnrollments) {
+    const chosen = enrollment.chosenInstallments;
+    const customPercentages = schemes ? schemes[chosen] : undefined;
+    let newTotalAmount = batch.totalBatchAmount;
+    if (prices && prices[chosen] !== undefined) {
+       newTotalAmount = Number(prices[chosen]);
+    }
+    enrollment.totalAmountProcessed = newTotalAmount;
+    const plans = calculateInstallments(newTotalAmount, chosen, batch.durationMonths || batch.maxInstallments, undefined, customPercentages);
+
+    const existingInvoices = invoicesStore.filter(i => i.enrollmentId === enrollment.id);
+    for (let i = 0; i < existingInvoices.length; i++) {
+        const inv = existingInvoices[i];
+        if (inv.status.toUpperCase() === "UNPAID" || inv.status.toUpperCase() === "UPCOMING") {
+           const planItem = plans.find(p => p.installmentNumber === inv.installmentNo);
+           if (planItem) {
+             inv.amount = planItem.amount;
+             updatedInvoicesCount++;
+           }
+        }
+    }
+  }
+
+  // 2. Process real Supabase enrollments & invoices if connected
+  if (supabase) {
+      try {
+          // get real enrollments (from student_batches table)
+          const { data: dbBatch } = await supabase.from('batches').select('*').eq('id', id).single();
+          if (dbBatch) {
+              const { data: realEnrollments } = await supabase.from('student_batches').select('*').eq('batch_id', id);
+              
+              if (realEnrollments && realEnrollments.length > 0) {
+                  // For each student we find their invoices
+                  const studentIds = realEnrollments.map(r => r.student_id);
+                  const { data: realInvoices } = await supabase.from('invoices').select('*').in('student_id', studentIds);
+                  
+                  if (realInvoices && realInvoices.length > 0) {
+                      // Process per student
+                      for (const studentId of studentIds) {
+                          const studentInvs = realInvoices.filter(i => i.student_id === studentId && (i.category || '').includes(batch.name) && (i.status.toUpperCase() === 'UPCOMING' || i.status.toUpperCase() === 'UNPAID'));
+                          const totalInstCountForStudent = realInvoices.filter(i => i.student_id === studentId && (i.category || '').includes(batch.name)).length;
+                          
+                          if (totalInstCountForStudent > 0) {
+                              const chosen = totalInstCountForStudent; // assuming chosen installments is the count of invoices
+                              const customPercentages = schemes ? schemes[chosen] : undefined;
+                              let newTotalAmount = batch.totalBatchAmount;
+                              if (prices && prices[chosen] !== undefined) {
+                                  newTotalAmount = Number(prices[chosen]);
+                              }
+                              
+                              const plans = calculateInstallments(newTotalAmount, chosen, batch.durationMonths || batch.maxInstallments, undefined, customPercentages);
+                              
+                              // try to map each invoice to its installment plan amount (sorting by due_date to match with plans in sequence)
+                              const sortedInvs = realInvoices.filter(i => i.student_id === studentId && (i.category || '').includes(batch.name)).sort((a,b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+                              
+                              for (let i = 0; i < sortedInvs.length; i++) {
+                                  const inv = sortedInvs[i];
+                                  if (inv.status.toUpperCase() === 'UPCOMING' || inv.status.toUpperCase() === 'UNPAID') {
+                                      const planItem = plans[i]; // i is 0-indexed which corresponds to plan 
+                                      if (planItem) {
+                                          await supabase.from('invoices').update({ amount: planItem.amount }).eq('id', inv.id);
+                                          updatedInvoicesCount++;
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+      } catch (err) {
+          console.error("Error updating Supabase invoices:", err);
+      }
+  }
+
+  res.json({ success: true, message: "Policies applied and enrollments updated.", updatedInvoices: updatedInvoicesCount });
 });
 
 // --- ENROLLMENTS & AUTOMATED ACCOUNTING ROUTE ---
 
 // POST /api/enrollments
-app.post("/api/enrollments", (req: Request, res: Response) => {
-  const { studentId, batchId, chosenInstallments, studentName } = req.body;
+app.post("/api/enrollments", async (req: Request, res: Response) => {
+  const { studentId, batchId, chosenInstallments, studentName, percentages, customAmount } = req.body;
 
   if (!studentId || !batchId || !chosenInstallments) {
     return res.status(400).json({ error: "Payload requires studentId, batchId, and chosenInstallments." });
   }
 
-  const batch = activeBatchesStore.find(b => b.id === batchId);
+  let batch;
+  if (supabase) {
+    const { data } = await supabase.from('batches').select('*').eq('id', batchId).single();
+    if (data) {
+       batch = {
+         id: data.id,
+         name: data.name,
+         totalBatchAmount: data.total_batch_amount,
+         durationMonths: data.duration_months,
+         maxInstallments: data.max_installments,
+         minInstallments: data.min_installments
+       };
+    }
+  } else {
+    batch = activeBatchesStore.find(b => b.id === batchId);
+  }
+
   if (!batch) {
     return res.status(404).json({ error: `Batch ID: ${batchId} not found.` });
   }
@@ -285,6 +699,11 @@ app.post("/api/enrollments", (req: Request, res: Response) => {
     });
   }
 
+  // Determine final amount to distribute
+  const finalTotalAmount = customAmount !== undefined && customAmount !== null 
+     ? Number(customAmount) 
+     : batch.totalBatchAmount;
+
   // 1. Create enrollment entity
   const enrollmentId = `ENR-${Math.floor(Math.random() * 1000000)}`;
   const enrollment = {
@@ -293,6 +712,7 @@ app.post("/api/enrollments", (req: Request, res: Response) => {
     studentName: studentName || "Student",
     batchId,
     chosenInstallments: installmentsCount,
+    totalAmountProcessed: finalTotalAmount,
     createdAt: new Date().toISOString()
   };
   enrolledStudentsStore.push(enrollment);
@@ -300,9 +720,11 @@ app.post("/api/enrollments", (req: Request, res: Response) => {
   // 2. Automated Installment Accounting Engine (Satisfies Part 1 Utility)
   try {
     const plans = calculateInstallments(
-      batch.totalBatchAmount, 
+      finalTotalAmount, 
       installmentsCount,
-      batch.durationMonths || batch.maxInstallments // Fallback if missing
+      batch.durationMonths || batch.maxInstallments, // Fallback if missing
+      undefined,
+      percentages
     );
     
     // Convert to mock invoices
@@ -319,6 +741,42 @@ app.post("/api/enrollments", (req: Request, res: Response) => {
       invoicesStore.push(inv);
       return inv;
     });
+
+    // 3. Persist to Supabase if connected
+    if (supabase) {
+        try {
+            // Check if student already in batch
+            const { data: existing } = await supabase.from('student_batches').select('*').eq('student_id', studentId).eq('batch_id', batchId).maybeSingle();
+            
+            if (!existing) {
+                await supabase.from('student_batches').insert({
+                    student_id: studentId,
+                    batch_id: batchId,
+                    installments_count: installmentsCount,
+                    amount_per_installment: Math.floor(finalTotalAmount / installmentsCount) // approximate for the linkage
+                });
+            }
+
+            // Create Supabase Invoices
+            const dbInvoices = plans.map(p => ({
+                id: `INV-${studentId}-${Date.now()}-${p.installmentNumber}`,
+                student_id: studentId,
+                student_name: studentName,
+                category: `${batch.name} - Installment ${p.installmentNumber}`,
+                amount: p.amount,
+                due_date: p.dueDate,
+                status: 'Unpaid',
+                studentId: studentId,
+                totalAmount: p.amount,
+                dueDate: p.dueDate,
+                type: 'Primary'
+            }));
+
+            await supabase.from('invoices').insert(dbInvoices);
+        } catch (err) {
+            console.error("Failed to persist simulation to Supabase:", err);
+        }
+    }
 
     res.status(201).json({
       success: true,
