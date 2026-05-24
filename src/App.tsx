@@ -16,17 +16,21 @@ import { Ledger } from "./pages/Ledger";
 import Batches from "./pages/Batches";
 import { Resources } from "./pages/Resources";
 import { Login } from "./pages/Login";
+import { WelcomeScreen } from "./components/WelcomeScreen";
+import { AnimatePresence } from "motion/react";
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(
     localStorage.getItem("triyuga_auth") === "true"
   );
+  const [showWelcome, setShowWelcome] = useState<boolean>(true);
 
   const handleLogin = () => setIsAuthenticated(true);
   const handleLogout = () => {
     localStorage.removeItem("triyuga_auth");
     setIsAuthenticated(false);
   };
+
 
   if (!isAuthenticated) {
     return (
@@ -40,22 +44,29 @@ export default function App() {
   }
 
   return (
-    <Router>
-      <PageLayout>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/students" element={<Students />} />
-          <Route path="/students/:id" element={<StudentProfile />} />
-          <Route path="/staff" element={<Staff />} />
-          <Route path="/staff/:id" element={<StaffProfile />} />
-          <Route path="/fees" element={<Fees />} />
-          <Route path="/ledger" element={<Ledger />} />
-          <Route path="/batches" element={<Batches />} />
-          <Route path="/resources" element={<Resources />} />
-          <Route path="/login" element={<Navigate to="/" replace />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </PageLayout>
-    </Router>
+    <>
+      <AnimatePresence>
+        {showWelcome && <WelcomeScreen onComplete={() => setShowWelcome(false)} />}
+      </AnimatePresence>
+      {!showWelcome && (
+        <Router>
+          <PageLayout>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/students" element={<Students />} />
+              <Route path="/students/:id" element={<StudentProfile />} />
+              <Route path="/staff" element={<Staff />} />
+              <Route path="/staff/:id" element={<StaffProfile />} />
+              <Route path="/fees" element={<Fees />} />
+              <Route path="/ledger" element={<Ledger />} />
+              <Route path="/batches" element={<Batches />} />
+              <Route path="/resources" element={<Resources />} />
+              <Route path="/login" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </PageLayout>
+        </Router>
+      )}
+    </>
   );
 }

@@ -163,9 +163,14 @@ export function Sidebar({ isOpen }: SidebarProps) {
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="text-[10px] text-slate-600 font-bold uppercase tracking-widest text-center mt-6 whitespace-nowrap overflow-hidden opacity-50 px-2"
+            className="flex flex-col items-center gap-1 mt-6 px-2 overflow-hidden whitespace-nowrap"
           >
-            &copy; {new Date().getFullYear()} Triyuga Management
+            <div className="text-[10px] text-slate-600 font-bold uppercase tracking-widest text-center opacity-50">
+              &copy; {new Date().getFullYear()} Triyuga Management
+            </div>
+            <div className="text-[9px] text-[#1CA751]/80 font-bold uppercase tracking-widest text-center">
+              Developed by AYUSH
+            </div>
           </motion.div>
         )}
       </div>
