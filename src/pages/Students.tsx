@@ -144,17 +144,13 @@ export function Students() {
     
     setLoading(true);
     try {
-      const { error: profileError } = await supabase
-        .from('student_profiles')
-        .update({ status: 'Graduated' })
-        .in('id', selectedStudents);
+      const [{ error: profileError1 }, { error: profileError2 }, { error: studentError }] = await Promise.all([
+        supabase.from('student_profiles').update({ status: 'Graduated' }).in('id', selectedStudents),
+        supabase.from('student_profiles').update({ status: 'Graduated' }).in('student_id', selectedStudents),
+        supabase.from('students').update({ status: 'Graduated' }).in('id', selectedStudents)
+      ]);
       
-      const { error: studentError } = await supabase
-        .from('students')
-        .update({ status: 'Graduated' })
-        .in('id', selectedStudents);
-
-      if (profileError && studentError) throw profileError;
+      if (profileError1 && profileError2 && studentError) throw profileError1 || profileError2;
       
       await loadStudents();
       setSelectedStudents([]);
@@ -171,9 +167,10 @@ export function Students() {
     const newStatus = student.status === 'Active' ? 'Graduated' : 'Active';
     
     try {
-      // Parallel update attempt for both potential tables
+      // Parallel update attempt for both potential tables and matching columns (id and student_id)
       await Promise.all([
         supabase.from('student_profiles').update({ status: newStatus }).eq('id', student.id),
+        supabase.from('student_profiles').update({ status: newStatus }).eq('student_id', student.id),
         supabase.from('students').update({ status: newStatus }).eq('id', student.id)
       ]);
       

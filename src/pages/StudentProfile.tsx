@@ -542,18 +542,18 @@ export function StudentProfile() {
     if (!window.confirm(confirmMsg)) return;
 
     try {
-      // 1. Check which table
+      // 1. Check which table (supporting both uuid match and student_id code match)
       const { data: profileCheck } = await supabase
         .from('student_profiles')
         .select('id')
-        .eq('id', id)
+        .or(`id.eq.${id},student_id.eq.${id}`)
         .maybeSingle();
 
       if (profileCheck) {
         await supabase
           .from('student_profiles')
           .update({ status: newStatus })
-          .eq('id', id);
+          .eq('id', profileCheck.id);
       } else {
         await supabase
           .from('students')
@@ -577,9 +577,9 @@ export function StudentProfile() {
       const { data: profileCheck } = await supabase
         .from('student_profiles')
         .select('id')
-        .eq('id', id)
+        .or(`id.eq.${id},student_id.eq.${id}`)
         .maybeSingle();
-        
+         
       if (profileCheck) {
          const parts = (editForm.name || "").split(" ");
          const firstName = parts[0] || editForm.first_name || "";
@@ -590,7 +590,7 @@ export function StudentProfile() {
             first_name: firstName,
             last_name: lastName,
             grade: editForm.grade,
-            status: editForm.status === 'Graduated' ? 'Graduated' : 'Active', // Status map
+            status: editForm.status || 'Active', // Preserve current selected status (including Pending & Inactive)
             photo_url: editForm.photo_url || undefined,
             
             // Demographics & Core
@@ -640,7 +640,7 @@ export function StudentProfile() {
             emergency_contact_relation: editForm.emergency_contact_relation || null,
             emergency_contact_number: editForm.emergency_contact_number || null,
           })
-          .eq('id', id);
+          .eq('id', profileCheck.id);
           if (error) throw error;
       } else {
         const { error } = await supabase
@@ -649,7 +649,7 @@ export function StudentProfile() {
             name: editForm.name,
             contact: editForm.contact,
             grade: editForm.grade,
-            status: editForm.status === 'Graduated' ? 'Graduated' : 'Active',
+            status: editForm.status || 'Active',
           })
           .eq('id', id);
         if (error) throw error;
@@ -704,14 +704,14 @@ export function StudentProfile() {
       const { data: profileCheck } = await supabase
         .from('student_profiles')
         .select('id')
-        .eq('id', id)
+        .or(`id.eq.${id},student_id.eq.${id}`)
         .maybeSingle();
 
       if (profileCheck) {
         await supabase
           .from('student_profiles')
           .update({ photo_url: finalPhotoUrl })
-          .eq('id', id);
+          .eq('id', profileCheck.id);
       } else {
         await supabase
           .from('students')
@@ -1122,7 +1122,9 @@ export function StudentProfile() {
                             onChange={(e) => setEditForm({...editForm, status: e.target.value as any})}
                             className="w-full rounded-md border border-input bg-muted/30 px-3 py-2 text-sm"
                           >
+                            <option value="Pending">Pending</option>
                             <option value="Active">Active</option>
+                            <option value="Inactive">Inactive</option>
                             <option value="Graduated">Graduated</option>
                           </select>
                         ) : (
