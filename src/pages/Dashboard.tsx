@@ -52,7 +52,7 @@ const formatDateFriendly = (dateStr: string) => {
   }
 };
 
-export function Dashboard() {
+export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boolean }) {
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
   const [stats, setStats] = useState({
@@ -580,8 +580,8 @@ export function Dashboard() {
   return (
     <motion.div 
       variants={containerVariants}
-      initial="hidden"
-      animate="show"
+      initial={isWelcomeActive ? "hidden" : "show"}
+      animate={isWelcomeActive ? "hidden" : "show"}
       className="space-y-6"
     >
       <motion.div 

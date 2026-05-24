@@ -18,6 +18,7 @@ import { Resources } from "./pages/Resources";
 import { Login } from "./pages/Login";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { AnimatePresence } from "motion/react";
+import { api } from "./lib/api";
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(
@@ -31,6 +32,22 @@ export default function App() {
     setIsAuthenticated(false);
   };
 
+  useEffect(() => {
+    if (isAuthenticated) {
+      // Background preload/eager load the entire dashboard and school dataset in parallel
+      // to pre-populate caches and guarantee instantly rendered profiles & operations dashboard
+      Promise.all([
+        api.getStudents(),
+        api.getStaff(),
+        api.getInvoices(),
+        api.getResources(),
+        api.getActivityLogs(),
+        api.getBatches()
+      ]).catch(err => {
+        console.warn("Background prefetching did not complete fully:", err);
+      });
+    }
+  }, [isAuthenticated]);
 
   if (!isAuthenticated) {
     return (
@@ -48,25 +65,23 @@ export default function App() {
       <AnimatePresence>
         {showWelcome && <WelcomeScreen onComplete={() => setShowWelcome(false)} />}
       </AnimatePresence>
-      {!showWelcome && (
-        <Router>
-          <PageLayout>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/students" element={<Students />} />
-              <Route path="/students/:id" element={<StudentProfile />} />
-              <Route path="/staff" element={<Staff />} />
-              <Route path="/staff/:id" element={<StaffProfile />} />
-              <Route path="/fees" element={<Fees />} />
-              <Route path="/ledger" element={<Ledger />} />
-              <Route path="/batches" element={<Batches />} />
-              <Route path="/resources" element={<Resources />} />
-              <Route path="/login" element={<Navigate to="/" replace />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </PageLayout>
-        </Router>
-      )}
+      <Router>
+        <PageLayout>
+          <Routes>
+            <Route path="/" element={<Dashboard isWelcomeActive={showWelcome} />} />
+            <Route path="/students" element={<Students />} />
+            <Route path="/students/:id" element={<StudentProfile />} />
+            <Route path="/staff" element={<Staff />} />
+            <Route path="/staff/:id" element={<StaffProfile />} />
+            <Route path="/fees" element={<Fees />} />
+            <Route path="/ledger" element={<Ledger />} />
+            <Route path="/batches" element={<Batches />} />
+            <Route path="/resources" element={<Resources />} />
+            <Route path="/login" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </PageLayout>
+      </Router>
     </>
   );
 }
