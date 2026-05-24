@@ -25,9 +25,12 @@ export function Students() {
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Filters
+  // Filters & Sorting Option
   const [gradeFilter, setGradeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [batchFilter, setBatchFilter] = useState("All");
+  const [sortBy, setSortBy] = useState<"name" | "batch">("name");
+  const [batches, setBatches] = useState<any[]>([]);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -35,10 +38,22 @@ export function Students() {
 
   const loadStudents = async () => {
     setLoading(true);
-    const data = await api.getStudents();
-    setStudents(data as Student[]);
+    const [studentsData, batchesData] = await Promise.all([
+      api.getStudents(),
+      api.getBatches()
+    ]);
+    setStudents(studentsData as Student[]);
+    setBatches(batchesData as any[]);
     setLoading(false);
   };
+
+  const batchMap = React.useMemo(() => {
+    const map = new Map<string, string>();
+    batches.forEach(b => {
+      if (b.id && b.name) map.set(b.id, b.name);
+    });
+    return map;
+  }, [batches]);
 
   useEffect(() => {
     loadStudents();
@@ -62,28 +77,46 @@ export function Students() {
   // Advanced Filtering Logic
   const filteredStudents = students.filter(s => {
     const matchesSearch = s.name.toLowerCase().includes(search.toLowerCase()) || 
-                         (s.student_id || s.id).toLowerCase().includes(search.toLowerCase());
+                          (s.student_id || s.id).toLowerCase().includes(search.toLowerCase());
     const matchesGrade = gradeFilter === "All" || s.grade === gradeFilter;
     const matchesStatus = statusFilter === "All" || s.status === statusFilter;
+    const matchesBatch = batchFilter === "All" || s.batch_id === batchFilter;
     
-    return matchesSearch && matchesGrade && matchesStatus;
+    return matchesSearch && matchesGrade && matchesStatus && matchesBatch;
   });
+
+  const sortedStudents = React.useMemo(() => {
+    return [...filteredStudents].sort((a, b) => {
+      if (sortBy === "batch") {
+        const batchA = batchMap.get(a.batch_id || "") || "";
+        const batchB = batchMap.get(b.batch_id || "") || "";
+        if (batchA === batchB) {
+          return a.name.localeCompare(b.name); // Secondary sort by name
+        }
+        if (!batchA) return 1; // Put "No Batch" at the bottom
+        if (!batchB) return -1;
+        return batchA.localeCompare(batchB);
+      } else {
+        return a.name.localeCompare(b.name);
+      }
+    });
+  }, [filteredStudents, sortBy, batchMap]);
 
   // Unique grades for filter
   const grades = ["All", ...new Set(students.map(s => s.grade))];
   const statuses = ["All", "Active", "Inactive", "Graduated"];
 
   // Pagination logic
-  const totalItems = filteredStudents.length;
+  const totalItems = sortedStudents.length;
   const totalPages = Math.ceil(totalItems / itemsPerPage);
-  const paginatedStudents = filteredStudents.slice(
+  const paginatedStudents = sortedStudents.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
 
   useEffect(() => {
     setCurrentPage(1); // Reset to first page when filtering
-  }, [search, gradeFilter, statusFilter]);
+  }, [search, gradeFilter, statusFilter, batchFilter, sortBy]);
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -177,9 +210,11 @@ export function Students() {
     <>
       {[...Array(5)].map((_, i) => (
         <TableRow key={i}>
+          <TableCell><Skeleton className="h-4 w-12" /></TableCell>
           <TableCell><Skeleton className="h-4 w-20" /></TableCell>
           <TableCell><Skeleton className="h-4 w-32" /></TableCell>
           <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+          <TableCell><Skeleton className="h-4 w-16" /></TableCell>
           <TableCell><Skeleton className="h-4 w-28" /></TableCell>
           <TableCell><Skeleton className="h-6 w-16" /></TableCell>
           <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
@@ -245,8 +280,8 @@ export function Students() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="md:col-span-2">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <Card className="col-span-1 lg:col-span-3">
           <div className="relative">
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input 
@@ -258,23 +293,43 @@ export function Students() {
           </div>
         </Card>
         
-        <div className="flex gap-2">
-          <div className="flex-1">
+        <div className="col-span-1 lg:col-span-9 grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div>
             <select 
               value={gradeFilter}
               onChange={(e) => setGradeFilter(e.target.value)}
-              className="w-full h-10 px-3 py-2 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-ring appearance-none"
+              className="w-full h-10 px-3 py-2 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
             >
               {grades.map(g => <option key={g} value={g}>{g === "All" ? "All Grades" : g}</option>)}
             </select>
           </div>
-          <div className="flex-1">
+          <div>
              <select 
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full h-10 px-3 py-2 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-ring appearance-none"
+              className="w-full h-10 px-3 py-2 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
             >
-              {statuses.map(s => <option key={s} value={s}>{s === "All" ? "All Status" : s}</option>)}
+              {statuses.map(s => <option key={s} value={s}>{s === "All" ? "All Statuses" : s}</option>)}
+            </select>
+          </div>
+          <div>
+            <select 
+              value={batchFilter}
+              onChange={(e) => setBatchFilter(e.target.value)}
+              className="w-full h-10 px-3 py-2 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+            >
+              <option value="All">All Batches</option>
+              {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <select 
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as "name" | "batch")}
+              className="w-full h-10 px-3 py-2 bg-primary/5 hover:bg-primary/10 border border-primary/20 rounded-md text-sm font-semibold text-primary focus:outline-none focus:ring-1 focus:ring-gold appearance-none cursor-pointer transition-colors"
+            >
+              <option value="name">Sort: Name (A-Z)</option>
+              <option value="batch">Sort: Batch Wise 🗂️</option>
             </select>
           </div>
         </div>
@@ -293,6 +348,7 @@ export function Students() {
                 </TableHead>
                 <TableHead className="w-[120px]">Student ID</TableHead>
                 <TableHead>Full Name</TableHead>
+                <TableHead>Batch</TableHead>
                 <TableHead>Grade</TableHead>
                 <TableHead>Contact</TableHead>
                 <TableHead>Status</TableHead>
@@ -305,7 +361,7 @@ export function Students() {
                   <TableSkeleton />
                 ) : paginatedStudents.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-64 text-center">
+                    <TableCell colSpan={8} className="h-64 text-center">
                       <motion.div 
                         initial={{ opacity: 0, scale: 0.9 }}
                         animate={{ opacity: 1, scale: 1 }}
@@ -314,7 +370,7 @@ export function Students() {
                         <UserPlus className="h-10 w-10 mb-2" />
                         <p className="text-lg font-medium">No results found</p>
                         <p className="text-sm">Try adjusting your filters or search terms</p>
-                        <Button variant="link" onClick={() => { setSearch(""); setGradeFilter("All"); setStatusFilter("All"); }}>
+                        <Button variant="link" onClick={() => { setSearch(""); setGradeFilter("All"); setStatusFilter("All"); setBatchFilter("All"); setSortBy("name"); }}>
                           Clear all filters
                         </Button>
                       </motion.div>
@@ -345,6 +401,15 @@ export function Students() {
                         >
                           {student.name}
                         </button>
+                      </TableCell>
+                      <TableCell>
+                        {student.batch_id ? (
+                          <Badge variant="outline" className="bg-indigo-50/50 text-indigo-700 border-indigo-150 rounded font-medium text-xs px-2.5 py-0.5 max-w-[160px] truncate block text-center">
+                            {batchMap.get(student.batch_id) || "Loading..."}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">No Batch Assigned</span>
+                        )}
                       </TableCell>
                       <TableCell>{student.grade}</TableCell>
                       <TableCell className="text-sm font-mono">{student.contact}</TableCell>

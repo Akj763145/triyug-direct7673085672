@@ -239,6 +239,22 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
       const { error } = await api.addStudentProfile(payload);
       if (error) throw error;
 
+      // Trigger dynamic policy logic to adjust/align invoices with the admin's custom EMI schemes & prices automatically
+      const installmentsCountVal = parseInt(data.installmentsCount || "1", 10);
+      if (installmentsCountVal > 1) {
+        try {
+          await fetch(`/api/batches/${data.batchId}/emi-policies`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({})
+          });
+        } catch (emiPolicyErr) {
+          console.warn("Could not automatically align newly enrolled student invoices with dynamic EMI policies:", emiPolicyErr);
+        }
+      }
+
       // Log activity
       await api.addActivityLog({
         action: `Enrolled student: ${data.firstName} ${data.lastName}`,

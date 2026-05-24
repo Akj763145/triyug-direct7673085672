@@ -24,7 +24,8 @@ export function calculateInstallments(
   installmentCount: number,
   batchDurationInMonths: number,
   startDate: string = new Date().toISOString().split('T')[0],
-  percentages?: number[]
+  percentages?: number[],
+  dueDateGapDays?: number
 ): InstallmentPlanItem[] {
   if (totalAmount <= 0) {
     throw new Error("Total batch amount must be greater than zero to split installments.");
@@ -50,7 +51,9 @@ export function calculateInstallments(
   const baseDate = new Date(startDate);
   
   const totalDays = batchDurationInMonths * 30;
-  const gapInDays = installmentCount > 1 ? Math.floor(totalDays / installmentCount) : 0;
+  const gapInDays = dueDateGapDays && dueDateGapDays > 0 
+    ? dueDateGapDays 
+    : (installmentCount > 1 ? Math.floor(totalDays / installmentCount) : 0);
 
   let computedAmounts = [];
   if (percentages && percentages.length === installmentCount) {

@@ -133,7 +133,7 @@ export function StudentProfile() {
   };
 
   const viewReceiptFromTxn = (txn: any) => {
-    const inv = invoices.find(i => i.id === txn.invoiceId || i.id === txn.invoice_id);
+    const inv = computedInvoices.find(i => i.id === txn.invoiceId || i.id === txn.invoice_id);
     
     setReceiptData({
       transaction_id: txn.id,
@@ -144,6 +144,7 @@ export function StudentProfile() {
       installment_title: inv?.title || 'Fee Payment',
       new_status: inv?.computedStatus || inv?.status || 'Success',
       amount_due: inv?.amountDue || 0,
+      discount_amount: inv?.discountAmount || 0,
     });
     setShowReceiptModal(true);
   };
@@ -157,20 +158,29 @@ export function StudentProfile() {
   const [deletingDocument, setDeletingDocument] = useState<string | null>(null);
   const [currentViewDate, setCurrentViewDate] = useState(new Date());
 
-  const fetchAttendance = useCallback(async () => {
+  const fetchAttendance = useCallback(async (preFetchedAtt?: any[], preFetchedHolidays?: any[]) => {
     if (!id || !supabase) return;
-    const { data, error } = await supabase
-      .from('student_attendance')
-      .select('*')
-      .eq('student_id', id)
-      .order('date', { ascending: false });
+    
+    let attData = preFetchedAtt;
+    let holidaysData = preFetchedHolidays;
 
-    const { data: holidays } = await supabase.from('holidays').select('*');
+    if (!attData || !holidaysData) {
+      const [attRes, holidaysRes] = await Promise.all([
+        supabase
+          .from('student_attendance')
+          .select('*')
+          .eq('student_id', id)
+          .order('date', { ascending: false }),
+        supabase.from('holidays').select('*')
+      ]);
+      if (!attData) attData = attRes.data || [];
+      if (!holidaysData) holidaysData = holidaysRes.data || [];
+    }
 
-    if (!error && data) {
-      let combined = [...(data as AttendanceRecord[])];
-      if (holidays && holidays.length > 0) {
-        holidays.forEach(h => {
+    if (attData) {
+      let combined = [...(attData as AttendanceRecord[])];
+      if (holidaysData && holidaysData.length > 0) {
+        holidaysData.forEach(h => {
           // ensure no duplicates if someone managed to mark holiday manually before
           if (!combined.some(r => r.date === h.date)) {
              combined.push({
@@ -247,6 +257,13 @@ export function StudentProfile() {
   const handleMarkAttendance = async (status: "Present" | "Absent" | "Late" | "Excused", subject?: string) => {
     if (!id || !supabase) return;
     const date = new Date().toISOString().split('T')[0];
+
+    // Holiday Check
+    const isHoliday = attendance.some(a => a.date === date && a.status === 'Holiday');
+    if (isHoliday) {
+      alert("Cannot mark attendance on a holiday.");
+      return;
+    }
     
     try {
       const { error } = await supabase
@@ -272,7 +289,7 @@ export function StudentProfile() {
     
     if (!silent) setLoading(true);
     try {
-      // 1. First try to fetch from new student_profiles table
+      // 1. Prepare queries for both modern profile and legacy student records
       const isUUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(id);
       
       let profileQuery = supabase.from('student_profiles').select('*');
@@ -282,7 +299,54 @@ export function StudentProfile() {
         profileQuery = profileQuery.eq('student_id', id);
       }
 
-      let { data: profileData, error: profileError } = await profileQuery.maybeSingle();
+      let fallbackQuery = supabase.from('students').select('*');
+      if (isUUID) {
+        fallbackQuery = fallbackQuery.eq('id', id);
+      } else {
+        fallbackQuery = fallbackQuery.eq('id', id);
+      }
+
+      // CONCURRENT BULK FETCH: Retrieve student records, invoices, enrollments, transactions, documents, attendance, holidays and batches concurrently in a single wave!
+      const [
+        profileRes, 
+        fallbackRes, 
+        invoicesRes, 
+        sBatchesRes,
+        transactionRes,
+        docListRes,
+        attRes,
+        holidaysRes,
+        allBatchesRes
+      ] = await Promise.all([
+        profileQuery.maybeSingle(),
+        fallbackQuery.maybeSingle(),
+        supabase.from('invoices').select('*').eq('student_id', id),
+        supabase.from('student_batches').select('batch_id, enrolled_at').eq('student_id', id),
+        supabase.from('transactions').select('*').eq('student_id', id),
+        supabase.storage.from('student-documents').list(id + '/', { limit: 100, offset: 0 }),
+        supabase.from('student_attendance').select('*').eq('student_id', id).order('date', { ascending: false }),
+        supabase.from('holidays').select('*'),
+        supabase.from('batches').select('id, name, duration_months, installment_policies')
+      ]);
+
+      const { data: profileData } = profileRes;
+      const { data: studentData, error: studentError } = fallbackRes;
+      const { data: invoiceData, error: invoiceError } = invoicesRes;
+      const sBatches = sBatchesRes.data;
+      const { data: transactionData, error: transactionError } = transactionRes;
+      const { data: docData, error: docError } = docListRes;
+      const studentAttendance = attRes.data || [];
+      const schoolHolidays = holidaysRes.data || [];
+      const allBatches = allBatchesRes.data || [];
+
+      let batchNamesJoined = '';
+      if (sBatches && sBatches.length > 0) {
+        const batchIds = sBatches.map((sb: any) => sb.batch_id);
+        const studentBatches = allBatches.filter((b: any) => batchIds.includes(b.id));
+        if (studentBatches.length > 0) {
+          batchNamesJoined = studentBatches.map((b: any) => b.name).join(", ");
+        }
+      }
 
       if (profileData) {
         // Safe photo URL fetch: fallback to localStorage cached version if database value is empty or invalid blob
@@ -290,12 +354,14 @@ export function StudentProfile() {
         const localPhoto = localStorage.getItem(`student_photo_${id}`);
         const finalPhoto = (dbPhoto && !dbPhoto.startsWith('blob:')) ? dbPhoto : (localPhoto || undefined);
 
+        const resolvedGrade = batchNamesJoined || profileData.grade || '';
+
         // Map to expected Student format
         const mappedStudent: Student = {
           ...profileData,
           id: profileData.student_id || profileData.id,
           name: `${profileData.first_name} ${profileData.last_name}`,
-          grade: profileData.grade,
+          grade: resolvedGrade,
           contact: profileData.parent1_contact || 'N/A',
           status: profileData.status === 'Active' ? 'Active' : 'Graduated', // Simple status mapping
           photo_url: finalPhoto,
@@ -303,36 +369,23 @@ export function StudentProfile() {
         setStudent(mappedStudent);
         setEditForm(mappedStudent);
       } else {
-        // 2. Fallback to older `students` table
-        let fallbackQuery = supabase.from('students').select('*');
-        if (isUUID) {
-          fallbackQuery = fallbackQuery.eq('id', id);
-        } else {
-          // If 'student_id' column exists it would be good to check, but id is text in students
-          fallbackQuery = fallbackQuery.eq('id', id);
-        }
-        const { data: studentData, error: studentError } = await fallbackQuery.maybeSingle();
-          
         if (studentError || !studentData) throw studentError || new Error("Student not found");
 
         const dbPhoto = studentData.photo_url;
         const localPhoto = localStorage.getItem(`student_photo_${id}`);
         const finalPhoto = (dbPhoto && !dbPhoto.startsWith('blob:')) ? dbPhoto : (localPhoto || undefined);
 
+        const resolvedGrade = batchNamesJoined || studentData.grade || '';
+
         const mappedOld: Student = {
           ...studentData,
+          grade: resolvedGrade,
           photo_url: finalPhoto
         };
         setStudent(mappedOld);
         setEditForm(mappedOld);
       }
 
-      // Fetch invoices/ledger
-      const { data: invoiceData, error: invoiceError } = await supabase
-        .from('invoices')
-        .select('*')
-        .eq('student_id', id);
-        
       if (!invoiceError && invoiceData) {
         // Ensure proper camelCase mapping if needed by UI
         let mappedInvoices = invoiceData.map(inv => ({
@@ -348,39 +401,59 @@ export function StudentProfile() {
 
         // --- SELF-HEALING LOGIC FOR LEGACY SEQUENTIAL DATES ---
         try {
-          const { data: sBatches } = await supabase.from('student_batches').select('batch_id, enrolled_at').eq('student_id', id);
           if (sBatches && sBatches.length > 0) {
-            const { data: batches } = await supabase.from('batches').select('id, name, duration_months').eq('id', sBatches[0].batch_id);
-            if (batches && batches.length > 0) {
-              const batch = batches[0];
-              const primaryInvs = mappedInvoices
-                .filter(i => (i.title.includes(batch.name) || i.title.includes('Installment')) && !i.title.toLowerCase().includes('incidental'))
-                .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
-              
-              if (primaryInvs.length > 1 && batch.duration_months > 0) {
-                // Gap in days = (Months * 30) / Count
-                const totalDays = batch.duration_months * 30;
-                const gapInDays = Math.floor(totalDays / primaryInvs.length);
-                
-                // Base date is the date of the first installment
-                const baseDate = new Date(primaryInvs[0].dueDate);
-                
-                primaryInvs.forEach((pi, index) => {
-                  const currentDate = new Date(baseDate.getTime());
-                  if (index > 0) {
-                    currentDate.setDate(currentDate.getDate() + (index * gapInDays));
-                  }
+            const batchIds = sBatches.map(sb => sb.batch_id);
+             const batches = allBatches.filter(b => batchIds.includes(b.id));
+             
+             if (batches && batches.length > 0) {
+               for (const batch of batches) {
+                 const primaryInvs = mappedInvoices
+                   .filter(i => {
+                     const hasBatchName = i.title.includes(batch.name);
+                     const isGenericInstallment = batches.length === 1 && i.title.includes('Installment');
+                     return (hasBatchName || isGenericInstallment) && !i.title.toLowerCase().includes('incidental');
+                   })
+                   .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+                 
+                 if (primaryInvs.length > 1 && batch.duration_months > 0) {
+                   // Gap in days = (Months * 30) / Count
+                   const totalDays = batch.duration_months * 30;
+                   let gapInDays = Math.floor(totalDays / primaryInvs.length);
+                   
+                   const policies = (batch as any).installment_policies;
+                   if (policies) {
+                     let customGap = 0;
+                     if (Array.isArray(policies)) {
+                       const p = policies.find((x: any) => x && x.type === 'dueDateGapConfig');
+                       if (p && p.dueDateGapDays) customGap = Number(p.dueDateGapDays);
+                     } else if (typeof policies === 'object' && policies.dueDateGapDays) {
+                       customGap = Number(policies.dueDateGapDays);
+                     }
+                     if (customGap > 0) {
+                       gapInDays = customGap;
+                     }
+                   }
+                   
+                   // Base date is the date of the first installment of this specific batch
+                  const baseDate = new Date(primaryInvs[0].dueDate);
                   
-                  const targetIso = currentDate.toISOString().split('T')[0];
-                  
-                  const target = mappedInvoices.find(m => m.id === pi.id);
-                  if (target && target.dueDate !== targetIso) {
-                    // Update in UI
-                    target.dueDate = targetIso;
-                    // Silent fix to DB
-                    supabase.from('invoices').update({ due_date: targetIso }).eq('id', pi.id).then();
-                  }
-                });
+                  primaryInvs.forEach((pi, index) => {
+                    const currentDate = new Date(baseDate.getTime());
+                    if (index > 0) {
+                      currentDate.setDate(currentDate.getDate() + (index * gapInDays));
+                    }
+                    
+                    const targetIso = currentDate.toISOString().split('T')[0];
+                    
+                    const target = mappedInvoices.find(m => m.id === pi.id);
+                    if (target && target.dueDate !== targetIso) {
+                      // Update in UI
+                      target.dueDate = targetIso;
+                      // Silent fix to DB
+                      supabase.from('invoices').update({ due_date: targetIso }).eq('id', pi.id).then();
+                    }
+                  });
+                }
               }
             }
           }
@@ -394,45 +467,29 @@ export function StudentProfile() {
         setInvoices([]);
       }
 
-      // Fetch transactions/payments
-      // Supabase transactions table might not have student_id, so wrap in try-catch
-      try {
-        const { data: transactionData, error: transactionError } = await supabase
-          .from('transactions')
-          .select('*')
-          .eq('student_id', id);
-
-        if (!transactionError && transactionData) {
-          // Map snake_case to camelCase for UI
-          const mappedTxns = transactionData.map((t: any) => ({
-            ...t,
-            invoiceId: t.invoice_id,
-            amount: Number(t.amount),
-            paymentMethod: t.payment_method || 'SYSTEM',
-            status: t.status || 'Success'
-          }));
-          setTransactions(mappedTxns);
-        } else {
-          setTransactions([]);
-        }
-      } catch (e) {
+      // Process pre-fetched payments & transactions
+      if (!transactionError && transactionData) {
+        const mappedTxns = transactionData.map((t: any) => ({
+          ...t,
+          invoiceId: t.invoice_id,
+          amount: Number(t.amount),
+          paymentMethod: t.payment_method || 'SYSTEM',
+          status: t.status || 'Success'
+        }));
+        setTransactions(mappedTxns);
+      } else {
         setTransactions([]);
       }
 
-      await fetchAttendance();
+      // Process pre-fetched attendance concurrently
+      await fetchAttendance(studentAttendance, schoolHolidays);
 
       // Clear any local hardcoded demo data
       setRemarks([]);
       setAssignments([]);
 
-      // Fetch documents
-      const { data: docData, error: docError } = await supabase
-        .storage
-        .from('student-documents')
-        .list(id + '/', { limit: 100, offset: 0 });
-        
+      // Process pre-fetched document listings
       if (!docError && docData) {
-        // We need to generate public URLs for each file
         const docsWithUrls = docData.map(doc => {
           const { data: { publicUrl } } = supabase.storage
             .from('student-documents')
@@ -444,6 +501,8 @@ export function StudentProfile() {
           };
         });
         setDocuments(docsWithUrls);
+      } else {
+        setDocuments([]);
       }
     } catch (err) {
       console.error("Error fetching student profile:", err);
@@ -830,14 +889,40 @@ export function StudentProfile() {
   const today = new Date();
   
   const computedInvoices = invoices.map(inv => {
+    // Standard actual payments (positive amount, not Discount)
     const amountPaid = transactions
-      .filter(t => (t.invoiceId === inv.id || t.invoice_id === inv.id) && (t.status === 'Success' || t.status === 'success'))
+      .filter(t => (t.invoiceId === inv.id || t.invoice_id === inv.id) && 
+                   (t.status === 'Success' || t.status === 'success') &&
+                   t.type !== 'Discount' && t.category !== 'Discount' && 
+                   !t.description.toLowerCase().includes('discount') &&
+                   !t.description.toLowerCase().includes('scholarship') &&
+                   Number(t.amount) > 0)
       .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+    // Discounts & Scholarships (negative amount, or classified as Discount/Scholarship)
+    const discountAmount = transactions
+      .filter(t => (t.invoiceId === inv.id || t.invoice_id === inv.id) && 
+                   (t.status === 'Success' || t.status === 'success') &&
+                   (t.type === 'Discount' || t.category === 'Discount' || 
+                    t.description.toLowerCase().includes('discount') || 
+                    t.description.toLowerCase().includes('scholarship') ||
+                    Number(t.amount) < 0))
+      .reduce((sum, t) => sum + Math.abs(Number(t.amount) || 0), 0);
+
+    // Late fees (positive amount, classified as Late Fee)
+    const lateFeeAmount = transactions
+      .filter(t => (t.invoiceId === inv.id || t.invoice_id === inv.id) && 
+                   (t.status === 'Success' || t.status === 'success') &&
+                   (t.type === 'Late Fee' || t.description.toLowerCase().includes('late fee') || t.description.toLowerCase().includes('penalty')) &&
+                   Number(t.amount) > 0)
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+    const netInvoiceAmount = inv.totalAmount + lateFeeAmount - discountAmount;
     
     let computedStatus = inv.status;
     const isPastDue = new Date(inv.dueDate).getTime() < today.getTime();
     
-    if (inv.status === 'Paid' || amountPaid >= inv.totalAmount) {
+    if (inv.status === 'Paid' || amountPaid >= netInvoiceAmount) {
       computedStatus = 'Paid';
     } else if (inv.status === 'Partial' || amountPaid > 0) {
       computedStatus = 'Partial';
@@ -851,13 +936,22 @@ export function StudentProfile() {
       ...inv,
       computedStatus,
       amountPaid,
-      amountDue: inv.totalAmount - amountPaid
+      discountAmount,
+      lateFeeAmount,
+      netInvoiceAmount,
+      amountDue: Math.max(0, netInvoiceAmount - amountPaid)
     };
   });
 
-  const totalInvoiceAmount = computedInvoices.reduce((acc, curr) => acc + curr.totalAmount, 0);
-  const totalPaid = transactions.filter(t => t.status === 'Success').reduce((acc, curr) => acc + curr.amount, 0);
-  const totalDue = totalInvoiceAmount - totalPaid;
+  const totalInvoiceOriginalAmount = computedInvoices.reduce((acc, curr) => acc + curr.totalAmount, 0);
+  const totalDiscounts = computedInvoices.reduce((acc, curr) => acc + (curr.discountAmount || 0), 0);
+  const totalLateFees = computedInvoices.reduce((acc, curr) => acc + (curr.lateFeeAmount || 0), 0);
+  const totalNetInvoiceAmount = totalInvoiceOriginalAmount + totalLateFees - totalDiscounts;
+
+  const totalPaid = computedInvoices.reduce((acc, curr) => acc + (curr.amountPaid || 0), 0);
+  const totalDue = computedInvoices.reduce((acc, curr) => acc + (curr.amountDue || 0), 0);
+  const totalInvoiceAmount = totalNetInvoiceAmount; // compatibility alias
+
   const nextDueDate = computedInvoices.filter(i => (i.computedStatus === 'Upcoming' || i.computedStatus === 'Overdue' || i.computedStatus === 'Partial')).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0]?.dueDate || 'None';
 
   const attendanceRate = (attendance.filter(a => a.status === 'Present').length / attendance.length) * 100;
@@ -1605,20 +1699,24 @@ export function StudentProfile() {
 
                   <div className="flex items-center justify-between pt-2">
                      <div>
-                        <div className="text-4xl font-black italic tracking-tighter text-foreground decoration-primary/30 underline underline-offset-8 decoration-2">₹{(totalPaid + totalDue).toLocaleString()}</div>
-                        <p className="text-[9px] text-muted-foreground uppercase font-black tracking-widest mt-3 opacity-70">Total Batch Amount</p>
+                        <div className="text-4xl font-black italic tracking-tighter text-foreground decoration-primary/30 underline underline-offset-8 decoration-2">₹{totalNetInvoiceAmount.toLocaleString()}</div>
+                        <p className="text-[9px] text-muted-foreground uppercase font-black tracking-widest mt-3 opacity-70">Total Net Amount (after adjustments)</p>
                      </div>
                      <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20 shadow-[0_0_20px_rgba(var(--primary),0.15)] group-hover:scale-110 transition-transform duration-500">
                         <IndianRupee className="h-8 w-8" />
                      </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                     <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 group-hover:bg-emerald-500/10 transition-colors">
+                  <div className="grid grid-cols-3 gap-3">
+                     <div className="p-3 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 group-hover:bg-emerald-500/10 transition-colors">
                         <p className="text-[9px] font-black uppercase text-emerald-600 tracking-widest mb-1">Total Paid</p>
                         <p className="text-lg font-black text-emerald-700">₹{totalPaid.toLocaleString()}</p>
                      </div>
-                     <div className="p-4 rounded-2xl bg-red-500/5 border border-red-500/10 group-hover:bg-red-500/10 transition-colors">
+                     <div className="p-3 rounded-2xl bg-amber-500/5 border border-amber-500/10 group-hover:bg-amber-500/10 transition-colors">
+                        <p className="text-[9px] font-black uppercase text-amber-600 tracking-widest mb-1">Discounts</p>
+                        <p className="text-lg font-black text-amber-700">₹{totalDiscounts.toLocaleString()}</p>
+                     </div>
+                     <div className="p-3 rounded-2xl bg-red-500/5 border border-red-500/10 group-hover:bg-red-500/10 transition-colors">
                         <p className="text-[9px] font-black uppercase text-red-600 tracking-widest mb-1">Total Due</p>
                         <p className="text-lg font-black text-red-700">₹{totalDue.toLocaleString()}</p>
                      </div>
@@ -1627,16 +1725,16 @@ export function StudentProfile() {
                   <div className="relative pt-2">
                      <div className="flex justify-between items-center text-[10px] font-black uppercase text-muted-foreground mb-2 tracking-widest">
                         <span>Payment Integrity</span>
-                        <span className="text-primary font-mono">{Math.round((totalPaid / (totalPaid * 1.5 || 1)) * 100)}%</span>
+                        <span className="text-primary font-mono">{Math.round((totalPaid / (totalNetInvoiceAmount || 1)) * 100)}%</span>
                      </div>
                      <div className="w-full bg-muted/40 rounded-full h-2 overflow-hidden border border-muted/20">
                         <motion.div 
                            initial={{ width: 0 }}
-                           animate={{ width: `${(totalPaid / (totalPaid + totalDue)) * 100}%` }}
+                           animate={{ width: `${(totalPaid / (totalNetInvoiceAmount || 1)) * 100}%` }}
                            className="bg-gradient-to-r from-primary to-cyan-400 h-2 rounded-full shadow-[0_0_10px_rgba(var(--primary),0.4)]"
                         />
                      </div>
-                     <p className="text-[8px] text-muted-foreground mt-3 italic font-serif">Calculation based on active enrollment ledger assets.</p>
+                     <p className="text-[8px] text-muted-foreground mt-3 italic font-serif">Original Batch Base Amount: ₹{totalInvoiceOriginalAmount.toLocaleString()}</p>
                   </div>
                </CardContent>
             </Card>
@@ -1697,11 +1795,19 @@ export function StudentProfile() {
                                   {inst.computedStatus === 'Paid' ? <CheckCircle2 className="h-3 w-3" /> : (inst.computedStatus === 'Overdue' || inst.computedStatus === 'Partial') ? <AlertCircle className="h-3 w-3" /> : <div className="h-1.5 w-1.5 bg-current rounded-full" />}
                                </div>
                                <div className="flex-1 pb-5 border-b border-muted/10 last:border-0 last:pb-0">
-                                  <div className="flex justify-between items-center mb-1">
-                                     <span className="text-xs font-black tracking-widest text-foreground group-hover/item:text-primary transition-colors">{inst.title}</span>
+                                  <div className="flex justify-between items-start mb-1">
+                                     <div className="flex flex-col">
+                                        <span className="text-xs font-black tracking-widest text-foreground group-hover/item:text-primary transition-colors">{inst.title}</span>
+                                        {inst.discountAmount > 0 && (
+                                           <span className="text-[10px] text-emerald-500 font-semibold italic">Save promo: -₹{inst.discountAmount.toLocaleString()} discount</span>
+                                        )}
+                                        {inst.lateFeeAmount > 0 && (
+                                           <span className="text-[10px] text-amber-500 font-semibold italic">Adj: +₹{inst.lateFeeAmount.toLocaleString()} late fee</span>
+                                        )}
+                                     </div>
                                      <div className="text-right">
                                          <div className="text-sm font-black font-mono">₹{inst.totalAmount.toLocaleString()}</div>
-                                         {inst.computedStatus === 'Partial' && (
+                                         {(inst.computedStatus === 'Partial' || inst.amountDue > 0) && inst.computedStatus !== 'Paid' && (
                                             <div className="text-[9px] font-black text-destructive font-mono">Due: ₹{(inst.amountDue || 0).toLocaleString()}</div>
                                          )}
                                       </div>
@@ -1709,7 +1815,7 @@ export function StudentProfile() {
                                   
                                   {inst.computedStatus === 'Partial' && (
                                      <div className="w-full bg-muted/40 rounded-full h-1 my-2 overflow-hidden">
-                                        <div className="bg-warning h-1 rounded-full" style={{ width: `${(inst.amountPaid! / inst.totalAmount) * 100}%` }}></div>
+                                        <div className="bg-warning h-1 rounded-full" style={{ width: `${(inst.amountPaid! / (inst.netInvoiceAmount || 1)) * 100}%` }}></div>
                                      </div>
                                   )}
 
@@ -1763,25 +1869,34 @@ export function StudentProfile() {
                               <TableCell className="px-4 py-4">
                                 <div className="text-[10px] font-black text-foreground group-hover/row:text-primary transition-colors tracking-widest">{txn.date}</div>
                                 <div className="text-[8px] text-muted-foreground font-mono mt-0.5">{txn.id}</div>
+                                {txn.description && (
+                                  <div className="text-[9px] text-muted-foreground italic mt-0.5 max-w-[180px] truncate">{txn.description}</div>
+                                )}
                               </TableCell>
                               <TableCell className="px-4 py-4">
-                                <div className="text-[11px] font-black text-foreground">₹{txn.amount.toLocaleString()}</div>
-                                <div className="text-[8px] text-muted-foreground uppercase font-bold tracking-tighter">{txn.paymentMethod || 'SYSTEM'}</div>
+                                <div className={`text-[11px] font-black ${(txn.type === 'Discount' || txn.category === 'Discount' || txn.description?.toLowerCase().includes('discount') || txn.description?.toLowerCase().includes('scholarship') || txn.amount < 0) ? 'text-emerald-500' : 'text-foreground'}`}>
+                                  {(txn.type === 'Discount' || txn.category === 'Discount' || txn.description?.toLowerCase().includes('discount') || txn.description?.toLowerCase().includes('scholarship') || txn.amount < 0) ? '-' : ''}₹{Math.abs(txn.amount).toLocaleString()}
+                                </div>
+                                <div className="text-[8px] text-muted-foreground uppercase font-black tracking-tighter">
+                                  {(txn.type === 'Discount' || txn.category === 'Discount' || txn.description?.toLowerCase().includes('discount') || txn.description?.toLowerCase().includes('scholarship') || txn.amount < 0) ? 'Discount Adjustment' : (txn.paymentMethod || 'SYSTEM')}
+                                </div>
                               </TableCell>
                               <TableCell className="text-right px-4 py-4">
                                 <div className="flex items-center justify-end gap-2">
                                   <Badge variant={txn.status === "Success" ? "success" : "destructive"} className="text-[9px] h-5 px-2 font-black uppercase tracking-tighter border-none shadow-sm">
                                     {txn.status}
                                   </Badge>
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-6 w-6 rounded-md hover:bg-emerald-500/10 hover:text-emerald-600 transition-all opacity-0 group-hover/row:opacity-100"
-                                    onClick={() => viewReceiptFromTxn(txn)}
-                                    title="View Receipt"
-                                  >
-                                    <Receipt className="h-3.5 w-3.5" />
-                                  </Button>
+                                  {!(txn.type === 'Discount' || txn.category === 'Discount' || txn.description?.toLowerCase().includes('discount') || txn.description?.toLowerCase().includes('scholarship') || txn.amount < 0) && (
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon" 
+                                      className="h-6 w-6 rounded-md hover:bg-emerald-500/10 hover:text-emerald-600 transition-all opacity-0 group-hover/row:opacity-100"
+                                      onClick={() => viewReceiptFromTxn(txn)}
+                                      title="View Receipt"
+                                    >
+                                      <Receipt className="h-3.5 w-3.5" />
+                                    </Button>
+                                  )}
                                 </div>
                               </TableCell>
                             </TableRow>
@@ -2116,12 +2231,18 @@ export function StudentProfile() {
                 </div>
               </div>
               
-              <div className="pt-2 border-t border-muted/30">
-                <p className="text-[9px] uppercase font-black tracking-widest text-muted-foreground mb-1.5 font-sans">Installment Details</p>
+              <div className="pt-2 border-t border-muted/30 space-y-2">
+                <p className="text-[9px] uppercase font-black tracking-widest text-muted-foreground font-sans">Installment Details</p>
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-bold">{receiptData?.installment_title}</span>
                   <span className="text-xs font-black text-emerald-600 bg-emerald-500/5 px-2 py-1 rounded">₹{receiptData?.paid_amount?.toLocaleString() || 0}</span>
                 </div>
+                {(receiptData?.discount_amount || receiptData?.total_discount || receiptData?.discountAmount) ? (
+                  <div className="flex justify-between items-center text-[11px] text-emerald-600 font-semibold bg-emerald-500/5 px-2.5 py-1.5 rounded-lg border border-emerald-500/10">
+                    <span className="font-sans">Scholarship / Discount:</span>
+                    <span className="font-mono font-bold">-₹{Math.abs(Number(receiptData?.discount_amount || receiptData?.total_discount || receiptData?.discountAmount)).toLocaleString()}</span>
+                  </div>
+                ) : null}
               </div>
 
               <div className="flex justify-between items-center py-2 border-y border-muted/30">
@@ -2336,6 +2457,26 @@ export function StudentProfile() {
                                    console.error("RPC Error:", error);
                                    alert(`Payment processing failed: ${error.message}`);
                                  } else {
+                                   // If adjustment is specified, create an adjustment transaction client-side to be 100% sure it is tracked!
+                                   if (adjustment !== 0) {
+                                     try {
+                                       await supabase.from('transactions').insert({
+                                         id: 'ADJ-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+                                         student_id: student?.id || id,
+                                         invoice_id: selectedInvoiceId,
+                                         date: new Date().toISOString().split('T')[0],
+                                         description: (adjustment > 0 ? 'Late Fee' : 'Discount/Scholarship') + ` for ${invoices.find(inv => inv.id === selectedInvoiceId)?.title || selectedInvoiceId}`,
+                                         type: adjustment < 0 ? 'Discount' : 'Late Fee',
+                                         category: adjustment < 0 ? 'Discount' : 'Fees',
+                                         amount: adjustment,
+                                         status: 'Success',
+                                         payment_method: 'SYSTEM'
+                                       });
+                                     } catch (adjErr) {
+                                       console.error("Error inserting adjustment txn:", adjErr);
+                                     }
+                                   }
+
                                    // Successfully processed securely, refetch data
                                    await fetchStudentData(true);
                                    setIsPaymentDrawerOpen(false);
@@ -2353,7 +2494,8 @@ export function StudentProfile() {
                                          month: 'long',
                                          day: 'numeric'
                                        }),
-                                       paid_amount: amount
+                                       paid_amount: amount,
+                                       discount_amount: data?.total_discount || (adjustment < 0 ? Math.abs(adjustment) : 0)
                                      });
                                      setShowReceiptModal(true);
                                    }

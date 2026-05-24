@@ -1,8 +1,26 @@
 import { supabase } from './supabase'
 import { Student, Staff, LedgerInvoice, LedgerTransaction, Resource, ActivityLog } from '../types'
 
-// Database generic fetcher
-async function fetchFromSupabase(table: string) {
+// Setup short-lived in-memory lookup cache to provide lightning fast dashboard and profile transitions
+const apiCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL_MS = 60000; // 60 seconds memory cache for repeated views
+
+export function invalidateApiCache(table?: string) {
+  if (table) {
+    apiCache.delete(table);
+  } else {
+    apiCache.clear();
+  }
+}
+
+// Database generic fetcher with intelligent cache lookup
+export async function fetchFromSupabase(table: string) {
+  // Check cache first for passive loads
+  const cached = apiCache.get(table);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   if (supabase) {
     try {
       const { data, error } = await supabase.from(table).select('*')
@@ -10,7 +28,9 @@ async function fetchFromSupabase(table: string) {
         console.error(`Error fetching from ${table}:`, error)
         return []
       }
-      return data || []
+      const result = data || [];
+      apiCache.set(table, { data: result, timestamp: Date.now() });
+      return result;
     } catch (e) {
       console.error(`Exception fetching from ${table}:`, e)
     }
@@ -20,6 +40,12 @@ async function fetchFromSupabase(table: string) {
 
 // Database generic inserter
 async function insertToSupabase(table: string, payload: any) {
+  invalidateApiCache(table);
+  // Clear related caches
+  if (table === 'students' || table === 'student_profiles') {
+    apiCache.delete('students');
+    apiCache.delete('student_profiles');
+  }
   if (supabase) {
     try {
       const { data, error } = await supabase.from(table).insert([payload])
@@ -35,6 +61,11 @@ async function insertToSupabase(table: string, payload: any) {
 
 // Database generic updater
 async function updateInSupabase(table: string, id: string, payload: any) {
+  invalidateApiCache(table);
+  if (table === 'students' || table === 'student_profiles') {
+    apiCache.delete('students');
+    apiCache.delete('student_profiles');
+  }
   if (supabase) {
     try {
       const { data, error } = await supabase.from(table).update(payload).eq('id', id).select()
@@ -51,8 +82,20 @@ async function updateInSupabase(table: string, id: string, payload: any) {
 // Services
 export const api = {
   getStudents: async () => {
-    const profiles = await fetchFromSupabase('student_profiles');
-    const oldStudents = await fetchFromSupabase('students');
+    const [profiles, oldStudents, studentBatches] = await Promise.all([
+      fetchFromSupabase('student_profiles'),
+      fetchFromSupabase('students'),
+      fetchFromSupabase('student_batches')
+    ]);
+    
+    const studentBatchMap = new Map<string, string>();
+    if (studentBatches && studentBatches.length > 0) {
+      studentBatches.forEach((sb: any) => {
+        if (sb.student_id && sb.batch_id) {
+          studentBatchMap.set(sb.student_id, sb.batch_id);
+        }
+      });
+    }
     
     let mappedProfiles: any[] = [];
     const profileIds = new Set();
@@ -63,18 +106,23 @@ export const api = {
         if (p.id) profileIds.add(p.id);
         if (p.student_id) profileStudentIds.add(p.student_id);
         
+        const sId = p.student_id || p.id;
         return {
-          id: p.student_id || p.id,
+          id: sId,
           name: `${p.first_name} ${p.last_name}`,
           grade: p.grade,
           contact: p.parent1_contact || 'N/A',
           status: p.status, // Use actual status
-          photo_url: p.photo_url || undefined
+          photo_url: p.photo_url || undefined,
+          batch_id: p.batch_id || studentBatchMap.get(sId) || studentBatchMap.get(p.id)
         };
       });
     }
     
-    const filteredOldStudents = (oldStudents || []).filter((s: any) => {
+    const filteredOldStudents = (oldStudents || []).map((s: any) => ({
+      ...s,
+      batch_id: s.batch_id || studentBatchMap.get(s.id)
+    })).filter((s: any) => {
       if (profileIds.has(s.id) || profileStudentIds.has(s.id)) return false;
       if (profileIds.has(s.student_id) || profileStudentIds.has(s.student_id)) return false;
       return true;
@@ -87,10 +135,28 @@ export const api = {
     return insertToSupabase('students', { ...student, id: defaultId })
   },
   
-  getStaff: () => fetchFromSupabase('staff'),
+  getStaff: () => fetchFromSupabase('staffs'),
+  
+  getDesignations: () => fetchFromSupabase('designations'),
+  getStaffDesignations: () => fetchFromSupabase('staff_designations'),
+  getHolidays: () => fetchFromSupabase('holidays'),
   
   getBatches: () => fetchFromSupabase('batches'),
-  getInvoices: () => fetchFromSupabase('invoices'),
+  getInvoices: async () => {
+    const data = await fetchFromSupabase('invoices');
+    return data.map((inv: any) => ({
+      id: inv.id,
+      studentId: inv.student_id,
+      studentName: inv.student_name,
+      title: inv.title || inv.category,
+      category: inv.category,
+      amount: inv.amount,
+      dueDate: inv.due_date,
+      status: inv.status
+    }));
+  },
+  updateInvoiceStatus: (id: string, status: string) => updateInSupabase('invoices', id, { status }),
+
   
   getTransactions: () => fetchFromSupabase('transactions'),
   addTransaction: (transaction: Omit<LedgerTransaction, 'id'>) => {

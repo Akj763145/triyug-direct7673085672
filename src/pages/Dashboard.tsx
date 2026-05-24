@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
-import { Calendar, Users, UserCog, IndianRupee, Layers, QrCode, CheckCircle2, X } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { Calendar, Users, UserCog, IndianRupee, Layers, QrCode, CheckCircle2, X, ChevronLeft, ChevronRight, Search, PartyPopper, Activity } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { api } from "../lib/api";
 import { ActivityLog } from "../types";
@@ -12,6 +13,7 @@ import { QRScanner } from "../components/QRScanner";
 import { HolidayManager } from "../components/HolidayManager";
 import { supabase } from "../lib/supabase";
 import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
 import { Skeleton } from "../components/ui/skeleton";
 import { motion, AnimatePresence } from "motion/react";
 import { initAuth, googleSignIn, getAccessToken, logout as googleLogout } from "../lib/auth";
@@ -40,6 +42,16 @@ const playBeep = () => {
   }
 };
 
+const formatDateFriendly = (dateStr: string) => {
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch(e) {
+    return dateStr;
+  }
+};
+
 export function Dashboard() {
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
@@ -57,12 +69,249 @@ export function Dashboard() {
   const [user, setUser] = useState<User | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  useEffect(() => {
-    initAuth(
-      (u, t) => { setNeedsAuth(false); setUser(u); setToken(t); },
-      () => { setNeedsAuth(true); setUser(null); setToken(null); }
+  // Daily Attendance Interactive States
+  const [studentList, setStudentList] = useState<any[]>([]);
+  const [fullStaffList, setFullStaffList] = useState<any[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    return new Date().toISOString().split('T')[0];
+  });
+  const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
+  const [staffAttendanceRecords, setStaffAttendanceRecords] = useState<any[]>([]);
+  const [attendanceLoading, setAttendanceLoading] = useState<boolean>(false);
+  const [staffAttendanceLoading, setStaffAttendanceLoading] = useState<boolean>(false);
+  const [attendanceSearch, setAttendanceSearch] = useState<string>("");
+  const [staffAttendanceSearch, setStaffAttendanceSearch] = useState<string>("");
+  const [holidays, setHolidays] = useState<any[]>([]);
+
+  const loadHolidays = async () => {
+    if (!supabase) return;
+    const { data } = await supabase.from('holidays').select('*');
+    if (data) setHolidays(data);
+  };
+
+  const currentHoliday = useMemo(() => {
+    return holidays.find(h => h.date === selectedDate);
+  }, [holidays, selectedDate]);
+
+  const loadDailyAttendance = async (dateStr: string) => {
+    if (!supabase) return;
+    setAttendanceLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('student_attendance')
+        .select('*')
+        .eq('date', dateStr);
+      if (!error && data) {
+        setAttendanceRecords(data);
+      }
+    } finally {
+      setAttendanceLoading(false);
+    }
+  };
+
+  const loadStaffDailyAttendance = async (dateStr: string) => {
+    if (!supabase) return;
+    setStaffAttendanceLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('staff_attendance')
+        .select('*')
+        .eq('date', dateStr);
+      if (!error && data) {
+        setStaffAttendanceRecords(data);
+      }
+    } finally {
+      setStaffAttendanceLoading(false);
+    }
+  };
+
+  const handleToggleAttendance = async (studentId: string, actionStatus: string) => {
+    if (!supabase) return;
+    if (currentHoliday) {
+      alert(`Cannot mark attendance on a holiday: ${currentHoliday.reason || 'General Holiday'}`);
+      return;
+    }
+    try {
+      await supabase
+        .from('student_attendance')
+        .upsert({
+          student_id: studentId,
+          date: selectedDate,
+          status: actionStatus,
+          subject: 'General',
+          marked_by: 'Dashboard Quick Action',
+          created_at: new Date().toISOString()
+        }, { onConflict: 'student_id,date,subject' });
+      
+      await loadDailyAttendance(selectedDate);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleToggleStaffAttendance = async (staffId: string, actionStatus: string) => {
+    if (!supabase) return;
+    if (currentHoliday) {
+      alert(`Cannot mark staff attendance on a holiday: ${currentHoliday.reason || 'General Holiday'}`);
+      return;
+    }
+    try {
+      await supabase
+        .from('staff_attendance')
+        .upsert({
+          staff_id: staffId,
+          date: selectedDate,
+          status: actionStatus,
+          created_at: new Date().toISOString()
+        }, { onConflict: 'staff_id,date' });
+      
+      await loadStaffDailyAttendance(selectedDate);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const adjustDate = (days: number) => {
+    try {
+      const current = new Date(selectedDate);
+      if (isNaN(current.getTime())) return;
+      current.setDate(current.getDate() + days);
+      setSelectedDate(current.toISOString().split('T')[0]);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const isToday = selectedDate === new Date().toISOString().split('T')[0];
+
+  const attendanceBreakdown = useMemo(() => {
+    const total = studentList.length || 0;
+    const recordsMap: Record<string, string> = {};
+    attendanceRecords.forEach(r => {
+      recordsMap[r.student_id] = r.status;
+    });
+
+    const present = attendanceRecords.filter(r => r.status === 'Present').length;
+    const absent = attendanceRecords.filter(r => r.status === 'Absent').length;
+    const late = attendanceRecords.filter(r => r.status === 'Late').length;
+    const excused = attendanceRecords.filter(r => r.status === 'Excused').length;
+    const markedCount = present + absent + late + excused;
+    const unmarked = Math.max(0, total - markedCount);
+    const rate = total > 0 ? (present / total) * 100 : 0;
+
+    return { total, present, absent, late, excused, unmarked, rate, recordsMap };
+  }, [studentList, attendanceRecords]);
+
+  const staffAttendanceBreakdown = useMemo(() => {
+    const total = fullStaffList.length || 0;
+    const recordsMap: Record<string, string> = {};
+    staffAttendanceRecords.forEach(r => {
+      recordsMap[r.staff_id] = r.status;
+    });
+
+    const present = staffAttendanceRecords.filter(r => r.status === 'Present').length;
+    const absent = staffAttendanceRecords.filter(r => r.status === 'Absent').length;
+    const late = staffAttendanceRecords.filter(r => r.status === 'Late').length;
+    const rate = total > 0 ? (present / total) * 100 : 0;
+    const unmarked = Math.max(0, total - staffAttendanceRecords.length);
+
+    return { total, present, absent, late, unmarked, rate, recordsMap };
+  }, [fullStaffList, staffAttendanceRecords]);
+
+  const filteredAttendanceStudents = useMemo(() => {
+    const searchLower = attendanceSearch.toLowerCase().trim();
+    if (searchLower === '') return studentList;
+    return studentList.filter((s: any) => 
+      (s.name?.toLowerCase() || "").includes(searchLower) ||
+      (s.id?.toLowerCase() || "").includes(searchLower)
     );
-  }, []);
+  }, [studentList, attendanceSearch]);
+
+  const filteredAttendanceStaff = useMemo(() => {
+    const searchLower = staffAttendanceSearch.toLowerCase().trim();
+    if (searchLower === '') return fullStaffList;
+    return fullStaffList.filter((s: any) => 
+      (s.first_name?.toLowerCase() || "").includes(searchLower) ||
+      (s.last_name?.toLowerCase() || "").includes(searchLower) ||
+      (s.id?.toLowerCase() || "").includes(searchLower)
+    );
+  }, [fullStaffList, staffAttendanceSearch]);
+
+  const loadDashboardData = async (dateStr: string) => {
+    if (!supabase) return;
+    setLoading(true);
+    setAttendanceLoading(true);
+    setStaffAttendanceLoading(true);
+
+    try {
+      // CONSOLDATED DATA FETCHING: Single parallel execution for all initial dashboard data
+      const [
+        logs, 
+        students, 
+        staff, 
+        invoices, 
+        resources,
+        holidaysData,
+        studentAtt,
+        staffAtt
+      ] = await Promise.all([
+        api.getActivityLogs(),
+        api.getStudents(),
+        api.getStaff(),
+        api.getInvoices(),
+        api.getResources(),
+        supabase.from('holidays').select('*'),
+        supabase.from('student_attendance').select('*').eq('date', dateStr),
+        supabase.from('staff_attendance').select('*').eq('date', dateStr)
+      ]);
+
+      // Financial Data Processing (Optimized loop)
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const currentYear = new Date().getFullYear();
+      const dynamicChartData = months.map(m => ({ month: m, revenue: 0, expenses: 0 }));
+
+      if (Array.isArray(invoices)) {
+        invoices.forEach((inv: any) => {
+          const dateStr = inv.due_date || inv.dueDate;
+          if (!dateStr) return;
+          const date = new Date(dateStr);
+          if (!isNaN(date.getTime()) && date.getFullYear() === currentYear) {
+            const mIdx = date.getMonth();
+            const amt = Number(inv.amount || inv.total_amount || inv.totalAmount || 0);
+            if (inv.status?.toLowerCase() === 'paid') dynamicChartData[mIdx].revenue += amt;
+          }
+        });
+      }
+
+      if (Array.isArray(staff)) {
+        staff.forEach((st: any) => {
+          const sal = Number(st.salary || 0);
+          dynamicChartData.forEach(d => d.expenses += sal);
+        });
+      }
+
+      // Bulk State Updates (Reduces re-renders)
+      setHolidays(holidaysData.data || []);
+      setAttendanceRecords(studentAtt.data || []);
+      setStaffAttendanceRecords(staffAtt.data || []);
+      setStudentList(students);
+      setFullStaffList(staff);
+      setChartData(dynamicChartData);
+      setActivityLogs(logs as ActivityLog[]);
+      setStats({
+        students: students.length,
+        staff: staff.length,
+        fees: (invoices as any[]).reduce((acc, inv) => acc + (inv.status === 'Paid' ? (inv.amount || inv.total_amount || inv.totalAmount || 0) : 0), 0),
+        resources: resources.length
+      });
+    } catch (error) {
+      console.error("Dashboard Load Error:", error);
+    } finally {
+      setLoading(false);
+      setAttendanceLoading(false);
+      setStaffAttendanceLoading(false);
+    }
+  };
 
   const handleGoogleLogin = async () => {
     try {
@@ -102,7 +351,7 @@ export function Dashboard() {
         summary: `School Attendance - ${date}`,
         description: `Total Students Marked: ${totalCount}\nPresent: ${presentCount}\nAbsent/Late/Excused: ${totalCount - presentCount}`,
         start: {
-          date: date, // All day event
+          date: date,
         },
         end: {
           date: date,
@@ -137,12 +386,17 @@ export function Dashboard() {
     const id = decodedText.toUpperCase();
     const date = new Date().toISOString().split('T')[0];
     
+    const todayHoliday = holidays.find(h => h.date === date);
+    if (todayHoliday) {
+      setScanResult(`SYSTEM BLOCK: Today is a Holiday (${todayHoliday.reason || 'General Holiday'})`);
+      setTimeout(() => setScanResult(null), 4000);
+      return;
+    }
+    
     try {
-      // Check if ID is staff
       const { data: staffData } = await supabase.from('staffs').select('id, first_name, last_name').eq('id', id).single();
       
       if (staffData) {
-         // Mark staff attendance
          const { error } = await supabase
           .from('staff_attendance')
           .upsert({
@@ -158,7 +412,6 @@ export function Dashboard() {
             setScanResult(`Attendance marked for Staff: ${staffData.first_name} ${staffData.last_name}`);
          }
       } else {
-         // Try fetching student
          const { data: studentData } = await supabase.from('students').select('id, first_name, last_name').eq('id', id).single();
          
          if (studentData) {
@@ -191,67 +444,20 @@ export function Dashboard() {
   };
 
   useEffect(() => {
-    const loadDashboardData = async () => {
-      setLoading(true);
-      const [logs, students, staff, invoices, resources] = await Promise.all([
-        api.getActivityLogs(),
-        api.getStudents(),
-        api.getStaff(),
-        api.getInvoices(),
-        api.getResources()
-      ]);
-
-      // Calculate dynamic chart financials
-      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const currentYear = new Date().getFullYear();
-      
-      const dynamicChartData = months.map(m => ({
-        month: m,
-        revenue: 0,
-        expenses: 0
-      }));
-
-      // Account for real invoice revenues
-      if (Array.isArray(invoices)) {
-        invoices.forEach((inv: any) => {
-          if (inv.due_date || inv.dueDate) {
-            const dateStr = inv.due_date || inv.dueDate;
-            const date = new Date(dateStr);
-            if (!isNaN(date.getTime()) && date.getFullYear() === currentYear) {
-              const monthIdx = date.getMonth();
-              // Support both standard column naming and camelCase variations
-              const amt = Number(inv.amount || inv.total_amount || inv.totalAmount || 0);
-              const isPaid = inv.status?.toLowerCase() === 'paid';
-              if (isPaid) {
-                dynamicChartData[monthIdx].revenue += amt;
-              }
-            }
-          }
-        });
-      }
-
-      // Account for real payroll expenses
-      if (Array.isArray(staff)) {
-        staff.forEach((st: any) => {
-          const sal = Number(st.salary || 0);
-          dynamicChartData.forEach(d => {
-            d.expenses += sal;
-          });
-        });
-      }
-
-      setChartData(dynamicChartData);
-      setActivityLogs(logs as ActivityLog[]);
-      setStats({
-        students: students.length,
-        staff: staff.length,
-        fees: (invoices as any[]).reduce((acc, inv) => acc + (inv.status === 'Paid' ? (inv.amount || inv.total_amount || inv.totalAmount || 0) : 0), 0),
-        resources: resources.length
-      });
-      setLoading(false);
-    };
-    loadDashboardData();
+    loadDashboardData(selectedDate);
+    initAuth(
+      (u, t) => { setNeedsAuth(false); setUser(u); setToken(t); },
+      () => { setNeedsAuth(true); setUser(null); setToken(null); }
+    );
   }, []);
+
+  useEffect(() => {
+    // Only fetch date-specific data when date changes after initial load
+    if (!loading) {
+       loadDailyAttendance(selectedDate);
+       loadStaffDailyAttendance(selectedDate);
+    }
+  }, [selectedDate]);
 
   const itemVariants = {
     hidden: { opacity: 0, y: 15, scale: 0.98 },
@@ -504,6 +710,198 @@ export function Dashboard() {
 
       <motion.div variants={itemVariants} className="grid grid-cols-1 gap-4">
          <HolidayManager />
+      </motion.div>      {/* Operations Command Center: Consolidated Attendance & Personnel Tracking */}
+      <motion.div variants={itemVariants} className="mt-6">
+        <Card className="border-none shadow-md shadow-slate-200/50 overflow-hidden bg-white">
+          <CardHeader className="bg-slate-50/50 border-b border-slate-100 flex flex-col sm:flex-row justify-between sm:items-center gap-4 py-5 px-6">
+            <div className="flex items-center gap-4">
+              <div className="h-10 w-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200">
+                <Activity className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <CardTitle className="text-lg font-black text-slate-950">Operations Center</CardTitle>
+                <CardDescription className="text-xs font-medium text-slate-500">Live datewise attendance monitoring and personnel roster management</CardDescription>
+              </div>
+            </div>
+
+            {/* Global Date Control */}
+            <div className="flex items-center gap-1.5 shrink-0 bg-white border border-slate-200 rounded-lg p-1 shadow-sm">
+              <Button variant="ghost" size="icon" onClick={() => adjustDate(-1)} className="h-8 w-8 hover:bg-slate-100"><ChevronLeft className="h-4 w-4" /></Button>
+              <div className="flex items-center gap-2 font-mono font-bold text-xs text-slate-700 px-1">
+                <input 
+                  type="date" 
+                  value={selectedDate}
+                  onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                  className="bg-transparent border-none text-xs font-bold font-mono focus:outline-none focus:ring-0 text-slate-700 cursor-pointer p-0 w-[115px]"
+                />
+                {isToday && <span className="bg-emerald-100 text-emerald-800 text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter">Today</span>}
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => adjustDate(1)} className="h-8 w-8 hover:bg-slate-100"><ChevronRight className="h-4 w-4" /></Button>
+            </div>
+          </CardHeader>
+
+          <Tabs defaultValue="students" className="w-full">
+            <div className="px-6 pt-4 border-b border-slate-50">
+              <TabsList className="bg-slate-100/50 p-1 rounded-lg">
+                <TabsTrigger value="students" className="text-xs font-black px-4 data-[state=active]:bg-white data-[state=active]:shadow-sm">STUDENT ROSTER</TabsTrigger>
+                <TabsTrigger value="staff" className="text-xs font-black px-4 data-[state=active]:bg-white data-[state=active]:shadow-sm">STAFF REGISTER</TabsTrigger>
+              </TabsList>
+            </div>
+
+            <TabsContent value="students" className="p-0 animate-in fade-in duration-300">
+              <CardContent className="p-6">
+                {/* Student Attendance Content */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+                  {[
+                    { label: "Enrolled", value: attendanceBreakdown.total, color: "text-indigo-600", bg: "bg-indigo-50/30" },
+                    { label: "Present", value: attendanceBreakdown.present, color: "text-emerald-600", bg: "bg-emerald-50/30" },
+                    { label: "Absentees", value: attendanceBreakdown.absent, color: "text-rose-600", bg: "bg-rose-50/30" },
+                    { label: "Late", value: attendanceBreakdown.late, color: "text-amber-600", bg: "bg-amber-50/30" },
+                    { label: "Excused", value: attendanceBreakdown.excused, color: "text-sky-600", bg: "bg-sky-50/30" },
+                    { label: "Unmarked", value: attendanceBreakdown.unmarked, color: "text-slate-400", bg: "bg-slate-100/30" },
+                  ].map((item) => (
+                    <div key={item.label} className={`border border-slate-100/50 rounded-xl p-3 flex flex-col ${item.bg}`}>
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{item.label}</span>
+                      <span className={`text-xl font-black mt-1 ${item.color}`}>{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="border border-slate-100 rounded-xl overflow-hidden bg-white shadow-sm">
+                  <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-3 bg-slate-50/10">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-700 uppercase">Interactive Student Log</span>
+                      {currentHoliday && (
+                        <Badge className="bg-purple-100 text-purple-700 border-purple-200 text-[9px] animate-pulse">
+                          <PartyPopper className="h-3 w-3 mr-1" /> {currentHoliday.reason || 'HOLIDAY'}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="relative w-full sm:w-64">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Filter by name or ID..."
+                        value={attendanceSearch}
+                        onChange={(e) => setAttendanceSearch(e.target.value)}
+                        className="w-full text-xs h-8 pl-8 pr-3 border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="max-h-[300px] overflow-y-auto divide-y divide-slate-100">
+                    {attendanceLoading ? (
+                      <div className="p-10 text-center text-slate-400 animate-pulse text-xs font-bold uppercase">Syncing Registry...</div>
+                    ) : filteredAttendanceStudents.map((student) => {
+                      const status = attendanceBreakdown.recordsMap[student.id] || 'Unmarked';
+                      return (
+                        <div key={student.id} className="p-3 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
+                          <div className="flex items-center gap-3">
+                            <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-[10px] text-indigo-600 border border-slate-200 shrink-0">
+                              {student.name ? student.name.split(' ').map((n: string) => n[0]).join('').substring(0,2) : 'S'}
+                            </div>
+                            <div>
+                              <span className="text-xs font-black text-slate-800 block leading-none">{student.name}</span>
+                              <span className="text-[9px] text-slate-400 font-mono font-bold tracking-tight">{student.id.split('-').shift() || student.id}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <Badge variant={status === "Present" ? "success" : status === "Absent" ? "destructive" : status === "Late" || status === "Excused" ? "warning" : "secondary"} className="text-[9px] font-black uppercase px-2 py-0.5">
+                              {status}
+                            </Badge>
+                            <div className={`flex gap-1 ${currentHoliday ? 'opacity-30 grayscale pointer-events-none' : ''}`}>
+                              {['Present', 'Absent', 'Late', 'Excused'].map((s) => (
+                                <button
+                                  key={s}
+                                  disabled={!!currentHoliday}
+                                  onClick={() => handleToggleAttendance(student.id, s)}
+                                  className={`h-6 w-6 rounded border text-[10px] font-black transition-all ${status === s ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-400 hover:border-slate-400'}`}
+                                >
+                                  {s[0]}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </CardContent>
+            </TabsContent>
+
+            <TabsContent value="staff" className="p-0 animate-in fade-in duration-300">
+              <CardContent className="p-6">
+                {/* Staff Attendance Content */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+                  {[
+                    { label: "Total Staff", value: staffAttendanceBreakdown.total, color: "text-indigo-600", bg: "bg-indigo-50/30" },
+                    { label: "Present", value: staffAttendanceBreakdown.present, color: "text-emerald-600", bg: "bg-emerald-50/30" },
+                    { label: "Absent", value: staffAttendanceBreakdown.absent, color: "text-rose-600", bg: "bg-rose-50/30" },
+                    { label: "Late Logins", value: staffAttendanceBreakdown.late, color: "text-amber-600", bg: "bg-amber-50/30" },
+                  ].map((item) => (
+                    <div key={item.label} className={`border border-slate-100/50 rounded-xl p-3 flex flex-col ${item.bg}`}>
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{item.label}</span>
+                      <span className={`text-xl font-black mt-1 ${item.color}`}>{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="border border-slate-100 rounded-xl overflow-hidden bg-white shadow-sm">
+                  <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-3 bg-slate-50/10">
+                    <span className="text-xs font-bold text-slate-700 uppercase">Staff Daily Register</span>
+                    <div className="relative w-full sm:w-64">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search personnel..."
+                        value={staffAttendanceSearch}
+                        onChange={(e) => setStaffAttendanceSearch(e.target.value)}
+                        className="w-full text-xs h-8 pl-8 pr-3 border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="max-h-[300px] overflow-y-auto divide-y divide-slate-100">
+                    {staffAttendanceLoading ? (
+                      <div className="p-10 text-center text-slate-400 animate-pulse text-xs font-bold uppercase">Syncing Directory...</div>
+                    ) : filteredAttendanceStaff.map((staff) => {
+                      const status = staffAttendanceBreakdown.recordsMap[staff.id] || 'Unmarked';
+                      return (
+                        <div key={staff.id} className="p-3 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
+                          <div className="flex items-center gap-3">
+                            <div className="h-8 w-8 rounded-lg bg-indigo-50 flex items-center justify-center font-black text-[10px] text-indigo-700 border border-indigo-100 shrink-0">
+                              {staff.first_name[0]}{staff.last_name[0]}
+                            </div>
+                            <div>
+                              <span className="text-xs font-black text-slate-900 block leading-none">{staff.first_name} {staff.last_name}</span>
+                              <span className="text-[9px] text-slate-400 font-mono font-black uppercase tracking-tighter">{staff.id}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <Badge variant={status === "Present" ? "success" : status === "Absent" ? "destructive" : status === "Late" ? "warning" : "outline"} className="text-[10px] font-black uppercase px-2 h-5 shadow-none">
+                              {status}
+                            </Badge>
+                            <div className={`flex gap-1 ${currentHoliday ? 'opacity-30 grayscale pointer-events-none' : ''}`}>
+                              {['Present', 'Absent', 'Late'].map((s) => (
+                                <button
+                                  key={s}
+                                  disabled={!!currentHoliday}
+                                  onClick={() => handleToggleStaffAttendance(staff.id, s)}
+                                  className={`h-7 w-7 rounded border text-[10px] font-black transition-all ${status === s ? 'bg-slate-900 text-white border-slate-900 shadow-md' : 'bg-white text-slate-400 hover:border-slate-400'}`}
+                                >
+                                  {s[0]}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </CardContent>
+            </TabsContent>
+          </Tabs>
+        </Card>
       </motion.div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">

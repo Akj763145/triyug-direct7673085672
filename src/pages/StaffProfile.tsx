@@ -97,19 +97,42 @@ export function StaffProfile() {
   const loadData = async (staffId: string) => {
     setLoading(true);
     
-    // Fetch all available designations
-    const { data: allDs } = await supabase.from('designations').select('*');
-    if (allDs) setAllDesignations(allDs);
+    // CONCURRENT BULK FETCH: Retrieve all staff data points, records, and files in parallel
+    const [
+      allDsRes,
+      sDataRes,
+      sdDataRes,
+      attDataRes,
+      holidaysRes,
+      salDataRes,
+      txDataRes,
+      docDataRes,
+      catDataRes
+    ] = await Promise.all([
+      supabase.from('designations').select('*'),
+      supabase.from('staffs').select('*').eq('id', staffId).single(),
+      supabase.from('staff_designations').select('designation_id, designations(name, description)').eq('staff_id', staffId),
+      supabase.from('staff_attendance').select('*').eq('staff_id', staffId).order('date', { ascending: false }),
+      supabase.from('holidays').select('*'),
+      supabase.from('staff_salaries').select('*').eq('staff_id', staffId).order('due_date', { ascending: false }),
+      supabase.from('staff_salary_transactions').select('*').eq('staff_id', staffId).order('payment_date', { ascending: false }),
+      supabase.storage.from('staff_document').list(`${staffId}/`),
+      supabase.from('document_categories').select('*').eq('type', 'Staff')
+    ]);
 
-    // Fetch Staff Profile
-    const { data: sData } = await supabase.from('staffs').select('*').eq('id', staffId).single();
+    const { data: allDs } = allDsRes;
+    const { data: sData } = sDataRes;
+    const { data: sdData } = sdDataRes;
+    const { data: attData } = attDataRes;
+    const { data: holidays } = holidaysRes;
+    const { data: salData } = salDataRes;
+    const { data: txData } = txDataRes;
+    const { data: docData } = docDataRes;
+    const { data: catData } = catDataRes;
+
+    if (allDs) setAllDesignations(allDs);
     if (sData) setStaff(sData);
 
-    // Fetch Designations
-    const { data: sdData } = await supabase.from('staff_designations')
-      .select('designation_id, designations(name, description)')
-      .eq('staff_id', staffId);
-    
     let dList: {name: string, description: string}[] = [];
     let dIds: string[] = [];
     if (sdData) {
@@ -145,15 +168,6 @@ export function StaffProfile() {
        });
     }
 
-    // Fetch Attendance
-    const { data: attData } = await supabase.from('staff_attendance')
-      .select('*')
-      .eq('staff_id', staffId)
-      .order('date', { ascending: false });
-      
-    // Fetch Holidays
-    const { data: holidays } = await supabase.from('holidays').select('*');
-
     if (attData) {
       let combined = [...attData];
       if (holidays && holidays.length > 0) {
@@ -170,24 +184,9 @@ export function StaffProfile() {
       setAttendance(combined);
     }
 
-    // Fetch Ledger
-    const { data: salData } = await supabase.from('staff_salaries')
-      .select('*')
-      .eq('staff_id', staffId)
-      .order('due_date', { ascending: false });
     if (salData) setSalaries(salData);
-
-    const { data: txData } = await supabase.from('staff_salary_transactions')
-      .select('*')
-      .eq('staff_id', staffId)
-      .order('payment_date', { ascending: false });
     if (txData) setTransactions(txData);
 
-    // Fetch Documents
-    const { data: docData } = await supabase.storage
-      .from('staff_document')
-      .list(`${staffId}/`);
-    
     if (docData) {
       const docsWithUrls = docData.map(doc => {
         const { data: { publicUrl } } = supabase.storage
@@ -198,11 +197,6 @@ export function StaffProfile() {
       setDocuments(docsWithUrls);
     }
 
-    // Fetch Categories
-    const { data: catData } = await supabase
-      .from('document_categories')
-      .select('*')
-      .eq('type', 'Staff');
     if (catData) setCategories(catData);
 
     setLoading(false);
@@ -212,6 +206,13 @@ export function StaffProfile() {
   const handleMarkAttendance = async (status: 'Present' | 'Absent' | 'Late' | 'Excused' | 'Holiday') => {
     if (!id) return;
     const date = new Date().toLocaleDateString('en-CA');
+
+    // Holiday check
+    const isHoliday = attendance.some(a => a.date === date && (a.status === 'Holiday' || a.reason));
+    if (isHoliday && status !== 'Holiday') {
+      alert("Cannot mark attendance on a holiday.");
+      return;
+    }
     
     let finalStatus = status;
     if (status === 'Present' && staff?.expected_arrival_time) {

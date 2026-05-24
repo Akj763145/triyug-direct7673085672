@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Search, UserPlus, QrCode, PlusCircle, CheckCircle, ShieldAlert, X, User, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "../components/ui/dialog";
 import { supabase } from "../lib/supabase";
+import { api } from "../lib/api";
 import { QRCodeSVG } from "qrcode.react";
 import { Skeleton } from "../components/ui/skeleton";
 import { motion, AnimatePresence } from "motion/react";
@@ -36,6 +37,7 @@ export function Staff() {
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const [designations, setDesignations] = useState<Designation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [holidays, setHolidays] = useState<any[]>([]);
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -58,6 +60,10 @@ export function Staff() {
   const [isAttendanceOpen, setIsAttendanceOpen] = useState(false);
   const [isQrViewOpen, setIsQrViewOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
+
+  // Loading States for forms
+  const [isSubmittingStaff, setIsSubmittingStaff] = useState(false);
+  const [isSubmittingDesignation, setIsSubmittingDesignation] = useState(false);
 
   // Forms
   const [newDesignationName, setNewDesignationName] = useState("");
@@ -105,16 +111,18 @@ export function Staff() {
     let ss: StaffMember[] = [];
     
     try {
-      const [{ data: dData }, { data: sData }, { data: sdData }] = await Promise.all([
-        supabase.from('designations').select('*'),
-        supabase.from('staffs').select('*'),
-        supabase.from('staff_designations').select('*')
+      // Parallel cached fetch using central api client
+      const [dData, sData, sdData, hData] = await Promise.all([
+        api.getDesignations(),
+        api.getStaff(),
+        api.getStaffDesignations(),
+        api.getHolidays()
       ]);
 
       if (dData) ds = dData as Designation[];
       
       if (sData) {
-        ss = sData.map(s => {
+        ss = (sData as any[]).map(s => {
           const theirD = sdData?.filter(sd => sd.staff_id === s.id).map(sd => sd.designation_id) || [];
           const labels = theirD.map(id => ds.find(d => d.id === id)?.name || "Unknown").filter(Boolean);
           return {
@@ -129,6 +137,8 @@ export function Staff() {
           };
         });
       }
+
+      if (hData) setHolidays(hData as any[]);
     } catch (e) {
       console.warn("Using minimal fallback", e);
     }
@@ -140,69 +150,79 @@ export function Staff() {
 
   const handleCreateDesignation = async () => {
     if (!newDesignationName) return;
+    setIsSubmittingDesignation(true);
     
-    const { error } = await supabase.from('designations').insert([{
-      name: newDesignationName,
-      description: newDesignationDesc
-    }]);
+    try {
+      const { error } = await supabase.from('designations').insert([{
+        name: newDesignationName,
+        description: newDesignationDesc
+      }]);
 
-    if (!error) {
-      setNewDesignationName("");
-      setNewDesignationDesc("");
-      setIsDesignationOpen(false);
-      loadData();
-    } else {
-      alert("Error: " + error.message);
+      if (!error) {
+        setNewDesignationName("");
+        setNewDesignationDesc("");
+        setIsDesignationOpen(false);
+        loadData();
+      } else {
+        alert("Error: " + error.message);
+      }
+    } finally {
+      setIsSubmittingDesignation(false);
     }
   };
 
   const handleCreateStaff = async () => {
     if (!staffForm.firstName || !staffForm.lastName) return;
+    setIsSubmittingStaff(true);
 
-    const { data: insertedStaff, error } = await supabase.from('staffs').insert([{
-      first_name: staffForm.firstName,
-      last_name: staffForm.lastName,
-      email: staffForm.email,
-      phone: staffForm.phone,
-      status: staffForm.status,
-      date_of_birth: staffForm.dateOfBirth || null,
-      permanent_address: staffForm.permanentAddress,
-      current_address: staffForm.currentAddress,
-      government_id: staffForm.governmentId,
-      education_qualifications: staffForm.educationQualifications,
-      employment_history: staffForm.employmentHistory,
-      reference_contacts: staffForm.referenceContacts,
-      background_screening: staffForm.backgroundScreening,
-      bank_account_details: staffForm.bankAccountDetails,
-      tax_declarations: staffForm.taxDeclarations,
-      pension_accounts: staffForm.pensionAccounts,
-      emergency_contact: staffForm.emergencyContact,
-      signed_contract: staffForm.signedContract,
-      equipment_requirements: staffForm.equipmentRequirements,
-      expected_arrival_time: staffForm.expectedArrivalTime,
-      profile_picture: staffForm.profilePicture || null
-    }]).select('id').single();
+    try {
+      const { data: insertedStaff, error } = await supabase.from('staffs').insert([{
+        first_name: staffForm.firstName,
+        last_name: staffForm.lastName,
+        email: staffForm.email,
+        phone: staffForm.phone,
+        status: staffForm.status,
+        date_of_birth: staffForm.dateOfBirth || null,
+        permanent_address: staffForm.permanentAddress,
+        current_address: staffForm.currentAddress,
+        government_id: staffForm.governmentId,
+        education_qualifications: staffForm.educationQualifications,
+        employment_history: staffForm.employmentHistory,
+        reference_contacts: staffForm.referenceContacts,
+        background_screening: staffForm.backgroundScreening,
+        bank_account_details: staffForm.bankAccountDetails,
+        tax_declarations: staffForm.taxDeclarations,
+        pension_accounts: staffForm.pensionAccounts,
+        emergency_contact: staffForm.emergencyContact,
+        signed_contract: staffForm.signedContract,
+        equipment_requirements: staffForm.equipmentRequirements,
+        expected_arrival_time: staffForm.expectedArrivalTime,
+        profile_picture: staffForm.profilePicture || null
+      }]).select('id').single();
 
-    if (!error && insertedStaff && staffForm.designationIds.length > 0) {
-      const joins = staffForm.designationIds.map(dId => ({
-        staff_id: insertedStaff.id,
-        designation_id: dId
-      }));
-      await supabase.from('staff_designations').insert(joins);
-    }
+      if (!error && insertedStaff && staffForm.designationIds.length > 0) {
+        const joins = staffForm.designationIds.map(dId => ({
+          staff_id: insertedStaff.id,
+          designation_id: dId
+        }));
+        await supabase.from('staff_designations').insert(joins);
+      }
 
-    if (!error) {
-      setIsNewStaffOpen(false);
-      setStaffForm({ 
-        firstName: "", lastName: "", email: "", phone: "", status: "Active", designationIds: [],
-        dateOfBirth: "", permanentAddress: "", currentAddress: "", governmentId: "", educationQualifications: "",
-        employmentHistory: "", referenceContacts: "", backgroundScreening: "", bankAccountDetails: "",
-        taxDeclarations: "", pensionAccounts: "", emergencyContact: "", signedContract: false, equipmentRequirements: "",
-        expectedArrivalTime: "09:00", profilePicture: ""
-      });
-      loadData();
-    } else {
-      alert("Error generating staff: " + error?.message);
+      if (!error) {
+        setIsNewStaffOpen(false);
+        setStaffForm({ 
+          firstName: "", lastName: "", email: "", phone: "", status: "Active", designationIds: [],
+          dateOfBirth: "", permanentAddress: "", currentAddress: "", governmentId: "", educationQualifications: "",
+          employmentHistory: "", referenceContacts: "", backgroundScreening: "", bankAccountDetails: "",
+          taxDeclarations: "", pensionAccounts: "", emergencyContact: "", signedContract: false, equipmentRequirements: "",
+          expectedArrivalTime: "09:00", profilePicture: ""
+        });
+        loadData();
+      } else {
+        alert("Error generating staff: " + error?.message);
+      }
+    } finally {
+      setIsSubmittingStaff(false);
     }
   };
 
@@ -244,6 +264,15 @@ export function Staff() {
     if (!scanInput) return;
 
     const sId = scanInput.trim().toUpperCase();
+    const today = new Date().toLocaleDateString('en-CA');
+
+    // Holiday Check
+    const isHoliday = holidays.find(h => h.date === today);
+    if (isHoliday) {
+       setScanMessage({ msg: `SYSTEM BLOCK: Today is a Holiday (${isHoliday.reason || 'General Holiday'})`, type: 'error' });
+       setScanInput("");
+       return;
+    }
     
     // Check if staff exists
     const validStaff = staffList.find(s => s.id === sId);
@@ -293,11 +322,51 @@ export function Staff() {
     }, 100);
   };
 
-  const filteredStaff = staffList.filter(s => 
-    (s.first_name + " " + s.last_name).toLowerCase().includes(search.toLowerCase()) || 
-    s.designations.some(d => d.toLowerCase().includes(search.toLowerCase())) ||
-    s.id.toLowerCase().includes(search.toLowerCase())
-  );
+  const [sortBy, setSortBy] = useState<"name-asc" | "name-desc" | "designation-asc" | "designation-desc" | "id-asc" | "id-desc">("name-asc");
+  const [designationFilter, setDesignationFilter] = useState("All");
+
+  const filteredStaff = staffList.filter(s => {
+    const matchesSearch = (s.first_name + " " + s.last_name).toLowerCase().includes(search.toLowerCase()) || 
+      s.designations.some(d => d.toLowerCase().includes(search.toLowerCase())) ||
+      s.id.toLowerCase().includes(search.toLowerCase());
+    
+    if (designationFilter === "All") return matchesSearch;
+    return matchesSearch && s.designations.includes(designationFilter);
+  });
+
+  const sortedStaff = [...filteredStaff].sort((a, b) => {
+    if (sortBy === "name-asc") {
+      const nameA = `${a.first_name} ${a.last_name}`.toLowerCase();
+      const nameB = `${b.first_name} ${b.last_name}`.toLowerCase();
+      return nameA.localeCompare(nameB);
+    }
+    if (sortBy === "name-desc") {
+      const nameA = `${a.first_name} ${a.last_name}`.toLowerCase();
+      const nameB = `${b.first_name} ${b.last_name}`.toLowerCase();
+      return nameB.localeCompare(nameA);
+    }
+    if (sortBy === "designation-asc") {
+      const desA = (a.designations?.[0] || "").toLowerCase();
+      const desB = (b.designations?.[0] || "").toLowerCase();
+      if (!desA) return 1;
+      if (!desB) return -1;
+      return desA.localeCompare(desB);
+    }
+    if (sortBy === "designation-desc") {
+      const desA = (a.designations?.[0] || "").toLowerCase();
+      const desB = (b.designations?.[0] || "").toLowerCase();
+      if (!desA) return 1;
+      if (!desB) return -1;
+      return desB.localeCompare(desA);
+    }
+    if (sortBy === "id-asc") {
+      return a.id.localeCompare(b.id);
+    }
+    if (sortBy === "id-desc") {
+      return b.id.localeCompare(a.id);
+    }
+    return 0;
+  });
 
   return (
     <div className="space-y-6">
@@ -386,7 +455,9 @@ export function Staff() {
                   <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Description (Optional)</label>
                   <Input value={newDesignationDesc} onChange={e => setNewDesignationDesc(e.target.value)} placeholder="Role clearance outline" />
                 </div>
-                <Button className="w-full mt-2 bg-foreground text-background" onClick={handleCreateDesignation}>Create Designation Rule</Button>
+                <Button className="w-full mt-2 bg-foreground text-background" onClick={handleCreateDesignation} disabled={isSubmittingDesignation || !newDesignationName}>
+                  {isSubmittingDesignation ? "Creating Ruleset..." : "Create Designation Rule"}
+                </Button>
 
                 <div className="mt-8">
                   <h4 className="text-xs font-bold uppercase mb-3">Live Roster Designations</h4>
@@ -583,8 +654,8 @@ export function Staff() {
               </Tabs>
 
               <DialogFooter className="mt-6 border-t pt-4">
-                <Button onClick={handleCreateStaff} disabled={!staffForm.firstName || !staffForm.lastName}>
-                  Finalize Contract & Enroll
+                <Button onClick={handleCreateStaff} disabled={isSubmittingStaff || !staffForm.firstName || !staffForm.lastName}>
+                  {isSubmittingStaff ? "Initializing Onboarding..." : "Finalize Contract & Enroll"}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -630,14 +701,48 @@ export function Staff() {
            <CardDescription>Comprehensive personnel roster categorized by multi-assignable roles.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="p-4 border-b flex items-center space-x-2">
-            <Search className="h-5 w-5 text-muted-foreground/50" />
-            <Input 
-              placeholder="Search by name, EMP ID, or designation tag..." 
-              className="max-w-md border-0 focus-visible:ring-0 bg-transparent px-2"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+          <div className="p-4 border-b flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center space-x-2 flex-grow max-w-sm">
+              <Search className="h-5 w-5 text-muted-foreground/50 shrink-0" />
+              <Input 
+                placeholder="Search by name, EMP ID, or tag..." 
+                className="w-full border-0 focus-visible:ring-0 bg-transparent px-2"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-4 shrink-0">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Designation:</span>
+                <select
+                  className="text-sm rounded-lg border border-zinc-200 bg-white px-3 py-1.5 font-medium text-zinc-800 shadow-sm focus:border-zinc-300 focus:outline-none focus:ring-1 focus:ring-zinc-300 transition-colors"
+                  value={designationFilter}
+                  onChange={(e) => setDesignationFilter(e.target.value)}
+                >
+                  <option value="All">All Designations</option>
+                  {designations.map(d => (
+                    <option key={d.id} value={d.name}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Sort By:</span>
+                <select
+                  className="text-sm rounded-lg border border-zinc-200 bg-white px-3 py-1.5 font-medium text-zinc-800 shadow-sm focus:border-zinc-300 focus:outline-none focus:ring-1 focus:ring-zinc-300 transition-colors"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                >
+                  <option value="designation-asc">Designation (A-Z)</option>
+                  <option value="designation-desc">Designation (Z-A)</option>
+                  <option value="name-asc">Name (A-Z)</option>
+                  <option value="name-desc">Name (Z-A)</option>
+                  <option value="id-asc">EMP ID (Ascending)</option>
+                  <option value="id-desc">EMP ID (Descending)</option>
+                </select>
+              </div>
+            </div>
           </div>
           <Table>
             <TableHeader>
@@ -664,14 +769,14 @@ export function Staff() {
                       <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto rounded-md" /></TableCell>
                     </TableRow>
                   ))
-                ) : filteredStaff.length === 0 ? (
+                ) : sortedStaff.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center py-12">
                       <p className="text-muted-foreground/75 font-medium">No personnel found.</p>
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredStaff.map((staff, idx) => (
+                  sortedStaff.map((staff, idx) => (
                     <motion.tr 
                       key={staff.id} 
                       variants={itemVariants}

@@ -83,6 +83,18 @@ interface SimulatedInvoice {
   status: "UPCOMING" | "UNPAID" | "PARTIAL" | "PAID" | "OVERDUE";
 }
 
+const getDueDateGapDaysFromPolicies = (policies: any): string => {
+  if (!policies) return '0';
+  if (Array.isArray(policies)) {
+    const p = policies.find((x: any) => x && x.type === 'dueDateGapConfig');
+    return p ? (p.dueDateGapDays || 0).toString() : '0';
+  }
+  if (typeof policies === 'object') {
+    return (policies.dueDateGapDays || 0).toString();
+  }
+  return '0';
+};
+
 export default function Batches() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [invoices, setInvoices] = useState<SimulatedInvoice[]>([]);
@@ -109,7 +121,8 @@ export default function Batches() {
     timing: '',
     batchMode: '',
     curriculumModules: [{ title: '', topics: '' }],
-    status: 'Active' as const
+    status: 'Active' as const,
+    dueDateGapDays: '0'
   });
   
   const [editingBatchId, setEditingBatchId] = useState<string | null>(null);
@@ -199,12 +212,6 @@ export default function Batches() {
     show: { opacity: 1, y: 0 }
   };
 
-  useEffect(() => {
-    fetchBatches();
-    fetchInvoices();
-    fetchCategoriesAndStaff();
-  }, []);
-
   const [streamCategories, setStreamCategories] = useState<{id: string, name: string}[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
   const [isManageCategoriesOpen, setIsManageCategoriesOpen] = useState(false);
@@ -244,21 +251,51 @@ export default function Batches() {
   };
 
   const fetchBatches = async () => {
-    setLoading(true);
     try {
       const response = await fetch('/api/batches');
       if (response.ok) {
         const json = await response.json();
-        setBatches(json.data);
+        let counts: Record<string, number> = {};
+        if (supabase) {
+          try {
+            const { data: enrollList, error: enrollError } = await supabase
+              .from('student_batches')
+              .select('batch_id');
+            if (!enrollError && enrollList) {
+              enrollList.forEach((e: any) => {
+                counts[e.batch_id] = (counts[e.batch_id] || 0) + 1;
+              });
+            }
+          } catch (e) {
+            console.error("Error reading student_batches:", e);
+          }
+        }
+        const enriched = (json.data || []).map((b: any) => ({
+          ...b,
+          enrolledCount: counts[b.id] || 0
+        }));
+        setBatches(enriched);
       } else {
         console.error("API response error, falling back to mock batch load");
       }
     } catch (e) {
       console.error("Express connection error:", e);
-    } finally {
-      setLoading(false);
     }
   };
+
+  const loadAllBatchData = async () => {
+    setLoading(true);
+    await Promise.all([
+      fetchBatches(),
+      fetchInvoices(),
+      fetchCategoriesAndStaff()
+    ]);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadAllBatchData();
+  }, []);
 
   // Student ID Lookup effect
   useEffect(() => {
@@ -505,7 +542,13 @@ export default function Batches() {
           timing: formData.timing,
           batchMode: formData.batchMode,
           curriculumModules: formData.curriculumModules,
-          status: formData.status
+          status: formData.status,
+          installment_policies: [
+            {
+              type: 'dueDateGapConfig',
+              dueDateGapDays: Number(formData.dueDateGapDays) || 0
+            }
+          ]
         })
       });
 
@@ -533,7 +576,8 @@ export default function Batches() {
           timing: '',
           batchMode: '',
           curriculumModules: [{ title: '', topics: '' }],
-          status: 'Active' as const
+          status: 'Active' as const,
+          dueDateGapDays: '0'
         });
         setEditingBatchId(null);
         setFormErrors({});
@@ -554,6 +598,19 @@ export default function Batches() {
 
   const handleEditInit = (batch: Batch) => {
     setEditingBatchId(batch.id);
+    
+    // Extract gaps
+    const policies = (batch as any).installment_policies || (batch as any).installmentPolicies;
+    let extractedGaps = '0';
+    if (policies) {
+      if (Array.isArray(policies)) {
+        const p = policies.find((x: any) => x && x.type === 'dueDateGapConfig');
+        if (p && p.dueDateGapDays) extractedGaps = p.dueDateGapDays.toString();
+      } else if (typeof policies === 'object' && (policies as any).dueDateGapDays) {
+        extractedGaps = (policies as any).dueDateGapDays.toString();
+      }
+    }
+
     setFormData({
       name: batch.name,
       description: batch.description || '',
@@ -572,7 +629,8 @@ export default function Batches() {
       timing: batch.timing || '',
       batchMode: batch.batchMode || '',
       curriculumModules: batch.curriculumModules || [{ title: '', topics: '' }],
-      status: (batch.status as any) || 'Active'
+      status: (batch.status as any) || 'Active',
+      dueDateGapDays: extractedGaps
     });
     setFormErrors({});
     setApiSuccessMsg('');
@@ -617,7 +675,8 @@ export default function Batches() {
       timing: '',
       batchMode: '',
       curriculumModules: [{ title: '', topics: '' }],
-      status: 'Active' as const
+      status: 'Active' as const,
+      dueDateGapDays: '0'
     });
     setFormErrors({});
     setApiSuccessMsg('');
@@ -1000,7 +1059,7 @@ export default function Batches() {
                    <div className="inline-flex items-center px-4 py-1.5 rounded-full bg-muted/50 mb-4">
                     <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mr-1">Internal Ledger Directives</span>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                     <div className="space-y-2">
                        <label className="text-xs font-bold text-foreground">Duration (Months) <span className="text-red-500">*</span></label>
                         <Input 
@@ -1019,6 +1078,42 @@ export default function Batches() {
                     <div className="space-y-2">
                        <label className="text-xs font-bold text-foreground">Max Installments</label>
                         <Input type="number" min="1" value={formData.maxInstallments} onChange={(e) => handleInputChange('maxInstallments', e.target.value)} className="h-11 bg-background" />
+                    </div>
+                    <div className="space-y-2">
+                       <label className="text-xs font-bold text-foreground">Installment Due Gap</label>
+                       <select
+                         value={['0', '15', '30', '45', '60', '90'].includes(formData.dueDateGapDays) ? formData.dueDateGapDays : 'custom'}
+                         onChange={(e) => {
+                           const val = e.target.value;
+                           if (val === 'custom') {
+                             handleInputChange('dueDateGapDays', '25'); // default custom placeholder
+                           } else {
+                             handleInputChange('dueDateGapDays', val);
+                           }
+                         }}
+                         className="w-full h-11 px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm font-medium"
+                       >
+                         <option value="0">Auto (Uniform Gaps)</option>
+                         <option value="15">Every 15 Days</option>
+                         <option value="30">Every 30 Days (Monthly)</option>
+                         <option value="45">Every 45 Days</option>
+                         <option value="60">Every 60 Days</option>
+                         <option value="90">Every 90 Days</option>
+                         <option value="custom">Custom Days Interval...</option>
+                       </select>
+                       {!['0', '15', '30', '45', '60', '90'].includes(formData.dueDateGapDays) && (
+                         <div className="mt-2 flex items-center gap-2">
+                           <Input
+                             type="number"
+                             min="1"
+                             placeholder="Days gap"
+                             value={formData.dueDateGapDays}
+                             onChange={(e) => handleInputChange('dueDateGapDays', e.target.value)}
+                             className="h-9 bg-background text-sm"
+                           />
+                           <span className="text-[10px] font-bold text-muted-foreground shrink-0">days</span>
+                         </div>
+                       )}
                     </div>
                   </div>
                 </div>
@@ -1246,11 +1341,25 @@ export default function Batches() {
                                     <Badge variant="outline" className="text-[8px] px-1 py-0 border-primary/20 text-primary font-bold">
                                       {batch.durationMonths || batch.maxInstallments} Months
                                     </Badge>
+                                    {(() => {
+                                      const gap = getDueDateGapDaysFromPolicies((batch as any).installment_policies || (batch as any).installmentPolicies);
+                                      if (gap !== '0' && gap !== '') {
+                                        return (
+                                          <Badge variant="outline" className="text-[8px] px-1.5 py-0 border-emerald-200 text-emerald-600 bg-emerald-50/55 font-black shrink-0">
+                                            Gap: {gap}d
+                                          </Badge>
+                                        );
+                                      }
+                                      return null;
+                                    })()}
                                     {batch.totalSeats && (
                                        <span className="text-[8px] font-bold text-muted-foreground/80 bg-muted px-1 py-0.5 rounded">
-                                         {batch.availableSeats !== undefined ? batch.availableSeats : batch.totalSeats} / {batch.totalSeats} Seats
+                                         Seats: {batch.availableSeats !== undefined ? batch.availableSeats : batch.totalSeats} / {batch.totalSeats}
                                        </span>
                                     )}
+                                    <Badge variant="outline" className="text-[8px] px-1.5 py-0 border-indigo-200 text-indigo-700 bg-indigo-50/70 font-black shrink-0">
+                                      {((batch as any).enrolledCount || 0)} Enrolled
+                                    </Badge>
                                     {batch.facultyAssign && (
                                        <span className="text-[8px] font-bold text-muted-foreground/80 bg-muted px-1 py-0.5 rounded truncate max-w-[60px]">
                                          {batch.facultyAssign}
