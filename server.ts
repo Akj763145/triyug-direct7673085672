@@ -217,14 +217,6 @@ const validateBatchMiddleware = (req: Request, res: Response, next: NextFunction
   next();
 };
 
-// --- CONFIG API ROUTE ---
-app.get("/api/config", (req: Request, res: Response) => {
-  res.json({
-    supabaseUrl: process.env.VITE_SUPABASE_URL || "",
-    supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || ""
-  });
-});
-
 // --- STREAM CATEGORIES API ROUTES ---
 
 app.get("/api/stream-categories", async (req: Request, res: Response) => {
