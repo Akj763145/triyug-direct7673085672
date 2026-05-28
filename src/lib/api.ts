@@ -307,5 +307,43 @@ export const api = {
       }
     }
     return { success: false, error: new Error('Supabase not configured') }
+  },
+
+  getEnquiries: () => fetchFromSupabase('enquiries'),
+  
+  addEnquiry: async (enquiry: any) => {
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('enquiries').insert([enquiry]).select()
+        return { data, success: !error, error }
+      } catch (e) {
+        return { data: null, success: false, error: e }
+      }
+    }
+    return { data: null, success: false, error: new Error('Supabase not configured') }
+  },
+  
+  updateEnquiry: async (id: string, updates: any) => {
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('enquiries').update(updates).eq('id', id).select()
+        return { data, success: !error, error }
+      } catch (e) {
+        return { data: null, success: false, error: e }
+      }
+    }
+    return { data: null, success: false, error: new Error('Supabase not configured') }
+  },
+  
+  deleteEnquiry: async (id: string) => {
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('enquiries').delete().eq('id', id)
+        return { success: !error, error }
+      } catch (e) {
+        return { success: false, error: e }
+      }
+    }
+    return { success: false, error: new Error('Supabase not configured') }
   }
 }

@@ -77,6 +77,12 @@ const MODULE_INFOS: { key: PermissionKey; name: string; desc: string; icon: any 
     desc: "Equipment tracking, reserving science lab kits, Zoom credentials, and physical assets.",
     icon: Layers 
   },
+  { 
+    key: "enquiries", 
+    name: "Enquiries", 
+    desc: "Manage prospective students, follow-ups, and conversions.",
+    icon: Users 
+  },
 ];
 
 export function Permissions() {
@@ -361,8 +367,8 @@ export function Permissions() {
                     onClick={() => setActiveRole(role)}
                     className={`w-full text-left p-3.5 rounded-xl border transition-all flex items-start gap-4 cursor-pointer outline-none ${
                         activeRole === role
-                        ? "bg-[#0A0A0A] text-white border-transparent shadow-md"
-                        : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50"
+                        ? "bg-emerald-50/70 border-[#1CA751] shadow-sm"
+                        : "bg-white border-slate-100 hover:bg-slate-50"
                     }`}
                   >
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
@@ -371,8 +377,8 @@ export function Permissions() {
                       {role === "Admin" ? "🛡️" : role === "Receptionist" ? "👨‍💼" : "👤"}
                     </div>
                     <div>
-                      <h3 className="font-bold text-xs">{role}</h3>
-                      <p className="text-[10px] opacity-75 mt-0.5 leading-normal">
+                      <h3 className={`font-bold text-xs ${activeRole === role ? "text-[#1CA751]" : "text-slate-900"}`}>{role}</h3>
+                      <p className={`text-[10px] mt-0.5 leading-normal ${activeRole === role ? "text-slate-700 font-medium" : "text-slate-500"}`}>
                         {role === "Admin" ? "Full system access & backend control." : `Custom clearance for ${role} module mapping.`}
                       </p>
                     </div>
@@ -390,44 +396,6 @@ export function Permissions() {
                   )}
                 </div>
               ))}
-            </CardContent>
-          </Card>
-
-          <Card className="border-slate-100 bg-slate-50/50 shadow-none border">
-            <CardHeader className="py-4">
-              <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-widest flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-primary" /> Permitted Templates Presets
-              </h3>
-            </CardHeader>
-            <CardContent className="space-y-2 pb-5">
-              <Button 
-                variant="outline"
-                className="w-full bg-white hover:bg-slate-50 border-slate-100 text-xs font-bold text-slate-700 rounded-xl justify-start gap-2 h-10 cursor-pointer"
-                onClick={() => handlePreset("front_desk")}
-              >
-                💡 Standard Front-Desk
-              </Button>
-              <Button 
-                variant="outline"
-                className="w-full bg-white hover:bg-slate-50 border-slate-100 text-xs font-bold text-slate-700 rounded-xl justify-start gap-2 h-10 cursor-pointer"
-                onClick={() => handlePreset("strict_office")}
-              >
-                🔒 Strict Front-Office (No Fees)
-              </Button>
-              <Button 
-                variant="outline"
-                className="w-full bg-white hover:bg-slate-200 border-slate-200 text-xs font-bold text-red-600 rounded-xl justify-start gap-2 h-10 cursor-pointer"
-                onClick={() => handlePreset("lockdown")}
-              >
-                🚨 Deny All (Lockdown)
-              </Button>
-              <Button 
-                variant="outline"
-                className="w-full bg-white hover:bg-slate-50 border-slate-100 text-xs font-bold text-slate-700 rounded-xl justify-start gap-2 h-10 cursor-pointer"
-                onClick={() => handlePreset("full")}
-              >
-                ⚡ Elevated Coverage (Allow All)
-              </Button>
             </CardContent>
           </Card>
         </div>

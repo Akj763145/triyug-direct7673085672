@@ -149,3 +149,35 @@ CREATE POLICY "Enable all for anon" ON public.users FOR ALL USING (true);
 
 DROP POLICY IF EXISTS "Enable all for anon" ON public.role_permissions;
 CREATE POLICY "Enable all for anon" ON public.role_permissions FOR ALL USING (true);
+
+-------------------------------------------------------------------------------
+-- 10. Enquiries Table
+-------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.enquiries (
+    id TEXT PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    contact TEXT NOT NULL,
+    interested_course TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'New',
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE public.enquiries ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Enable all for anon" ON public.enquiries;
+CREATE POLICY "Enable all for anon" ON public.enquiries FOR ALL USING (true);
+
+-------------------------------------------------------------------------------
+-- Explicit Grants (Required for PostgREST by May 30, 2026 Supabase Update)
+-------------------------------------------------------------------------------
+GRANT ALL ON TABLE public.students TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.staff TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.invoices TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.transactions TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.resources TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.activity_logs TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.users TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.role_permissions TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.enquiries TO anon, authenticated, service_role;
+

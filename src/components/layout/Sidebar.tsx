@@ -43,6 +43,7 @@ export function Sidebar({ isOpen }: SidebarProps) {
     { name: "Fee Management", to: "/fees", icon: Receipt, permissionKey: "fees" as const },
     { name: "Ledger Management", to: "/ledger", icon: BookOpen, permissionKey: "ledger" as const },
     { name: "Resource Management", to: "/resources", icon: Layers, permissionKey: "resources" as const },
+    { name: "Enquiries", to: "/enquiries", icon: Users, permissionKey: "enquiries" as const },
   ];
 
   // Filter items matching the user permissions

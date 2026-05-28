@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, ReactNode } from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { PageLayout } from "./components/layout/PageLayout";
 import { Dashboard } from "./pages/Dashboard";
 import { Students } from "./pages/Students";
@@ -15,6 +15,7 @@ import { Fees } from "./pages/Fees";
 import { Ledger } from "./pages/Ledger";
 import Batches from "./pages/Batches";
 import { Resources } from "./pages/Resources";
+import { Enquiries } from "./pages/Enquiries";
 import { Permissions } from "./pages/Permissions";
 import { Login } from "./pages/Login";
 import { AccessDenied } from "./components/AccessDenied";
@@ -41,6 +42,51 @@ function AdminRoute({ element }: { element: ReactNode }) {
   return <>{element}</>;
 }
 
+// Active session checker to verify if the logged-in user credential has been deleted
+function SessionValidator({ onLogout }: { onLogout: () => void }) {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    const verifyUserSession = async () => {
+      const username = localStorage.getItem("triyuga_username");
+      if (!username) return;
+      
+      // Allow root admin to always bypass DB-list validation so they are never locked out
+      if (username.toLowerCase() === "admin") return;
+
+      try {
+        const users = await api.getUsers();
+        const userExists = users.some((u: any) => u.username?.toLowerCase() === username.toLowerCase());
+        if (!userExists) {
+          console.log("Current user has been deleted or is invalid.");
+          onLogout();
+        }
+      } catch (e) {
+        console.error("Failed to verify user session:", e);
+      }
+    };
+
+    verifyUserSession();
+
+    // Recheck immediately if credentials or configurations are updated locally
+    window.addEventListener('triyuga_permissions_updated', verifyUserSession);
+    
+    // Check when refocusing the app window
+    window.addEventListener('focus', verifyUserSession);
+
+    // Periodic check every 8 seconds for real-time security
+    const interval = setInterval(verifyUserSession, 8000);
+
+    return () => {
+      window.removeEventListener('triyuga_permissions_updated', verifyUserSession);
+      window.removeEventListener('focus', verifyUserSession);
+      clearInterval(interval);
+    };
+  }, [pathname, onLogout]);
+
+  return null;
+}
+
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(
     localStorage.getItem("triyuga_auth") === "true"
@@ -49,6 +95,13 @@ export default function App() {
   const [permissionsTrigger, setPermissionsTrigger] = useState(0);
 
   const handleLogin = () => setIsAuthenticated(true);
+  const handleLogout = () => {
+    localStorage.removeItem("triyuga_auth");
+    localStorage.removeItem("triyuga_user_role");
+    localStorage.removeItem("triyuga_user_fullname");
+    localStorage.removeItem("triyuga_username");
+    setIsAuthenticated(false);
+  };
   
   // Real-time developer quick switcher or user details updates listeners
   useEffect(() => {
@@ -98,11 +151,13 @@ export default function App() {
         {showWelcome && <WelcomeScreen onComplete={() => setShowWelcome(false)} />}
       </AnimatePresence>
       <Router>
+        <SessionValidator onLogout={handleLogout} />
         <PageLayout>
           <Routes>
             <Route path="/" element={<PermittedRoute element={<Dashboard isWelcomeActive={showWelcome} />} permissionKey="dashboard" />} />
             <Route path="/students" element={<PermittedRoute element={<Students />} permissionKey="students" />} />
             <Route path="/students/:id" element={<PermittedRoute element={<StudentProfile />} permissionKey="students" />} />
+            <Route path="/enquiries" element={<PermittedRoute element={<Enquiries />} permissionKey="enquiries" />} />
             <Route path="/staff" element={<PermittedRoute element={<Staff />} permissionKey="staff" />} />
             <Route path="/staff/:id" element={<PermittedRoute element={<StaffProfile />} permissionKey="staff" />} />
             <Route path="/fees" element={<PermittedRoute element={<Fees />} permissionKey="fees" />} />
