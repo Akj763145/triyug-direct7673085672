@@ -312,6 +312,7 @@ export const api = {
   getEnquiries: () => fetchFromSupabase('enquiries'),
   
   addEnquiry: async (enquiry: any) => {
+    invalidateApiCache('enquiries');
     if (supabase) {
       try {
         const { data, error } = await supabase.from('enquiries').insert([enquiry]).select()
@@ -324,6 +325,7 @@ export const api = {
   },
   
   updateEnquiry: async (id: string, updates: any) => {
+    invalidateApiCache('enquiries');
     if (supabase) {
       try {
         const { data, error } = await supabase.from('enquiries').update(updates).eq('id', id).select()
@@ -336,6 +338,7 @@ export const api = {
   },
   
   deleteEnquiry: async (id: string) => {
+    invalidateApiCache('enquiries');
     if (supabase) {
       try {
         const { error } = await supabase.from('enquiries').delete().eq('id', id)
