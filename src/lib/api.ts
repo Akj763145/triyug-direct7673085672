@@ -216,6 +216,96 @@ export const api = {
       }
     }
 
+    // Fallback credentials for preview & environment comfort
+    const lUsername = username.toLowerCase();
+    if (lUsername === "admin" && password === "admin123") {
+      return {
+        success: true,
+        user: {
+          id: "USR-001",
+          username: "admin",
+          full_name: "System Administrator",
+          role: "Admin"
+        }
+      };
+    } else if (lUsername === "receptionist" && password === "reception123") {
+      return {
+        success: true,
+        user: {
+          id: "USR-002",
+          username: "receptionist",
+          full_name: "Office Receptionist",
+          role: "Receptionist"
+        }
+      };
+    }
+
     return { success: false, error: new Error('Invalid credentials or Supabase not connected') }
+  },
+  
+  getUsers: () => fetchFromSupabase('users'),
+  
+  addUser: async (user: any) => {
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .insert([{ ...user, id: crypto.randomUUID() }])
+          .select()
+        return { data, success: !error, error }
+      } catch (e) {
+        return { data: null, success: false, error: e }
+      }
+    }
+    return { data: null, success: false, error: new Error('Supabase not configured') }
+  },
+
+  deleteUser: async (id: string) => {
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('users').delete().eq('id', id)
+        return { success: !error, error }
+      } catch (e) {
+        return { success: false, error: e }
+      }
+    }
+    return { success: false, error: new Error('Supabase not configured') }
+  },
+  
+  getRolePermissions: async () => {
+    const data = await fetchFromSupabase('role_permissions');
+    const result: Record<string, any> = {};
+    if (data && data.length > 0) {
+      data.forEach((rp: any) => {
+        result[rp.role] = rp.permissions;
+      });
+    }
+    return result;
+  },
+  
+  saveRolePermissions: async (role: string, permissions: any) => {
+    if (supabase) {
+      try {
+        const { error } = await supabase
+          .from('role_permissions')
+          .upsert({ role, permissions, updated_at: new Date().toISOString() })
+        return { success: !error, error }
+      } catch (e) {
+        return { success: false, error: e }
+      }
+    }
+    return { success: false, error: new Error('Supabase not configured') }
+  },
+
+  deleteRole: async (role: string) => {
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('role_permissions').delete().eq('role', role)
+        return { success: !error, error }
+      } catch (e) {
+        return { success: false, error: e }
+      }
+    }
+    return { success: false, error: new Error('Supabase not configured') }
   }
 }

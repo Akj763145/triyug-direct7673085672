@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, ReactNode } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { PageLayout } from "./components/layout/PageLayout";
 import { Dashboard } from "./pages/Dashboard";
@@ -15,25 +15,57 @@ import { Fees } from "./pages/Fees";
 import { Ledger } from "./pages/Ledger";
 import Batches from "./pages/Batches";
 import { Resources } from "./pages/Resources";
+import { Permissions } from "./pages/Permissions";
 import { Login } from "./pages/Login";
+import { AccessDenied } from "./components/AccessDenied";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { AnimatePresence } from "motion/react";
 import { api } from "./lib/api";
+import { hasPermission, PermissionKey, refreshPermissions } from "./lib/permissions";
+
+// Route wrapper mapping paths and roles to authorization criteria
+function PermittedRoute({ element, permissionKey }: { element: ReactNode; permissionKey: PermissionKey }) {
+  const userRole = localStorage.getItem("triyuga_user_role") || "Admin";
+  if (!hasPermission(userRole, permissionKey)) {
+    return <AccessDenied />;
+  }
+  return <>{element}</>;
+}
+
+// Route wrapper restrict-locking page to Admin-only clearance
+function AdminRoute({ element }: { element: ReactNode }) {
+  const userRole = localStorage.getItem("triyuga_user_role") || "Admin";
+  if (userRole !== "Admin") {
+    return <AccessDenied />;
+  }
+  return <>{element}</>;
+}
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(
     localStorage.getItem("triyuga_auth") === "true"
   );
   const [showWelcome, setShowWelcome] = useState<boolean>(true);
+  const [permissionsTrigger, setPermissionsTrigger] = useState(0);
 
   const handleLogin = () => setIsAuthenticated(true);
-  const handleLogout = () => {
-    localStorage.removeItem("triyuga_auth");
-    setIsAuthenticated(false);
-  };
+  
+  // Real-time developer quick switcher or user details updates listeners
+  useEffect(() => {
+    const handleUpdate = () => {
+      setPermissionsTrigger((prev) => prev + 1);
+    };
+    window.addEventListener('triyuga_permissions_updated', handleUpdate);
+    return () => {
+      window.removeEventListener('triyuga_permissions_updated', handleUpdate);
+    };
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated) {
+      // Refresh permissions from Supabase to ensure synchronization
+      refreshPermissions();
+
       // Background preload/eager load the entire dashboard and school dataset in parallel
       // to pre-populate caches and guarantee instantly rendered profiles & operations dashboard
       Promise.all([
@@ -68,15 +100,16 @@ export default function App() {
       <Router>
         <PageLayout>
           <Routes>
-            <Route path="/" element={<Dashboard isWelcomeActive={showWelcome} />} />
-            <Route path="/students" element={<Students />} />
-            <Route path="/students/:id" element={<StudentProfile />} />
-            <Route path="/staff" element={<Staff />} />
-            <Route path="/staff/:id" element={<StaffProfile />} />
-            <Route path="/fees" element={<Fees />} />
-            <Route path="/ledger" element={<Ledger />} />
-            <Route path="/batches" element={<Batches />} />
-            <Route path="/resources" element={<Resources />} />
+            <Route path="/" element={<PermittedRoute element={<Dashboard isWelcomeActive={showWelcome} />} permissionKey="dashboard" />} />
+            <Route path="/students" element={<PermittedRoute element={<Students />} permissionKey="students" />} />
+            <Route path="/students/:id" element={<PermittedRoute element={<StudentProfile />} permissionKey="students" />} />
+            <Route path="/staff" element={<PermittedRoute element={<Staff />} permissionKey="staff" />} />
+            <Route path="/staff/:id" element={<PermittedRoute element={<StaffProfile />} permissionKey="staff" />} />
+            <Route path="/fees" element={<PermittedRoute element={<Fees />} permissionKey="fees" />} />
+            <Route path="/ledger" element={<PermittedRoute element={<Ledger />} permissionKey="ledger" />} />
+            <Route path="/batches" element={<PermittedRoute element={<Batches />} permissionKey="batches" />} />
+            <Route path="/resources" element={<PermittedRoute element={<Resources />} permissionKey="resources" />} />
+            <Route path="/permissions" element={<AdminRoute element={<Permissions />} />} />
             <Route path="/login" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

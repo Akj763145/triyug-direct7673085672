@@ -1,18 +1,10 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Users, UserCog, Receipt, BookOpen, Layers, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, UserCog, Receipt, BookOpen, Layers, LogOut, ShieldCheck } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { motion, AnimatePresence } from "motion/react";
-
-const navItems = [
-  { name: "Dashboard", to: "/", icon: LayoutDashboard },
-  { name: "Student Management", to: "/students", icon: Users },
-  { name: "Staff Management", to: "/staff", icon: UserCog },
-  { name: "Batch & Installments", to: "/batches", icon: Layers },
-  { name: "Fee Management", to: "/fees", icon: Receipt },
-  { name: "Ledger Management", to: "/ledger", icon: BookOpen },
-  { name: "Resource Management", to: "/resources", icon: Layers },
-];
+import { useState, useEffect } from "react";
+import { hasPermission } from "../../lib/permissions";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -20,11 +12,53 @@ interface SidebarProps {
 
 export function Sidebar({ isOpen }: SidebarProps) {
   const navigate = useNavigate();
+  const [permissionsTrigger, setPermissionsTrigger] = useState(0);
+
+  // Trigger re-render when permissions are saved in real-time
+  useEffect(() => {
+    const handleUpdate = () => {
+      setPermissionsTrigger((prev) => prev + 1);
+    };
+    window.addEventListener('triyuga_permissions_updated', handleUpdate);
+    return () => {
+      window.removeEventListener('triyuga_permissions_updated', handleUpdate);
+    };
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem("triyuga_auth");
+    localStorage.removeItem("triyuga_user_role");
+    localStorage.removeItem("triyuga_user_fullname");
+    localStorage.removeItem("triyuga_username");
     window.location.reload(); 
   };
+
+  const userRole = localStorage.getItem("triyuga_user_role") || "Admin";
+
+  const baseNavItems = [
+    { name: "Dashboard", to: "/", icon: LayoutDashboard, permissionKey: "dashboard" as const },
+    { name: "Student Management", to: "/students", icon: Users, permissionKey: "students" as const },
+    { name: "Staff Management", to: "/staff", icon: UserCog, permissionKey: "staff" as const },
+    { name: "Batch & Installments", to: "/batches", icon: Layers, permissionKey: "batches" as const },
+    { name: "Fee Management", to: "/fees", icon: Receipt, permissionKey: "fees" as const },
+    { name: "Ledger Management", to: "/ledger", icon: BookOpen, permissionKey: "ledger" as const },
+    { name: "Resource Management", to: "/resources", icon: Layers, permissionKey: "resources" as const },
+  ];
+
+  // Filter items matching the user permissions
+  const filteredNavItems = baseNavItems.filter((item) =>
+    hasPermission(userRole, item.permissionKey)
+  );
+
+  // Expose Permissions Editor only to Administrator
+  if (userRole === "Admin") {
+    filteredNavItems.push({
+      name: "Access Controls",
+      to: "/permissions",
+      icon: ShieldCheck,
+      permissionKey: "dashboard" as any,
+    });
+  }
 
   return (
     <motion.aside 
@@ -86,7 +120,7 @@ export function Sidebar({ isOpen }: SidebarProps) {
 
       {/* Nav Section */}
       <nav className="flex-1 overflow-y-auto py-8 px-4 space-y-2 z-10 relative scrollbar-none">
-        {navItems.map((item, index) => (
+        {filteredNavItems.map((item, index) => (
           <motion.div
             key={item.name}
             initial={{ opacity: 0, x: -20 }}

@@ -18,8 +18,12 @@ export function Header({ toggleSidebar }: HeaderProps) {
     if (path.startsWith('/fees')) return "Fee Management";
     if (path.startsWith('/ledger')) return "Ledger";
     if (path.startsWith('/resources')) return "Resource Management";
+    if (path.startsWith('/permissions')) return "Access Controls";
     return "Dashboard";
   };
+
+  const userFullname = localStorage.getItem("triyuga_user_fullname") || "System Administrator";
+  const userRole = localStorage.getItem("triyuga_user_role") || "Admin";
 
   return (
     <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 sticky top-0 z-10 w-full">
@@ -59,12 +63,12 @@ export function Header({ toggleSidebar }: HeaderProps) {
         </motion.div>
         <div className="flex items-center gap-3 pl-3 border-l border-slate-200">
           <div className="flex flex-col items-end hidden sm:flex">
-             <span className="text-sm font-semibold text-slate-900 leading-none">Admin</span>
-             <span className="text-[10px] uppercase text-primary font-bold tracking-widest mt-1">Role Active</span>
+             <span className="text-sm font-semibold text-slate-900 leading-none">{userFullname}</span>
+             <span className="text-[10px] uppercase text-primary font-bold tracking-widest mt-1">{userRole} Active</span>
           </div>
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
             <Button variant="ghost" size="icon" className="rounded-full bg-primary/10 text-primary hover:bg-primary/20 p-0 overflow-hidden w-9 h-9 border border-primary/20">
-              <User className="h-4 w-4" />
+              <span className="text-xs font-black">{userFullname ? userFullname.charAt(0).toUpperCase() : "U"}</span>
             </Button>
           </motion.div>
         </div>
