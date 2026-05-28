@@ -246,6 +246,7 @@ export const api = {
   getUsers: () => fetchFromSupabase('users'),
   
   addUser: async (user: any) => {
+    invalidateApiCache('users');
     if (supabase) {
       try {
         const { data, error } = await supabase
@@ -261,6 +262,7 @@ export const api = {
   },
 
   deleteUser: async (id: string) => {
+    invalidateApiCache('users');
     if (supabase) {
       try {
         const { error } = await supabase.from('users').delete().eq('id', id)
@@ -284,6 +286,7 @@ export const api = {
   },
   
   saveRolePermissions: async (role: string, permissions: any) => {
+    invalidateApiCache('role_permissions');
     if (supabase) {
       try {
         const { error } = await supabase
@@ -298,6 +301,7 @@ export const api = {
   },
 
   deleteRole: async (role: string) => {
+    invalidateApiCache('role_permissions');
     if (supabase) {
       try {
         const { error } = await supabase.from('role_permissions').delete().eq('role', role)
