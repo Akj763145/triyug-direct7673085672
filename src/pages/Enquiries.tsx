@@ -63,34 +63,53 @@ export function Enquiries() {
 
   const handleAdd = async () => {
     if (!newEnquiry.name || !newEnquiry.contact) return;
-    setLoading(true);
-    setSuccessMsg(null);
-    const result = await api.addEnquiry({
-      ...newEnquiry
+    
+    // Create new enquiry object with dynamic unique id and local timestamp
+    const tempId = crypto.randomUUID();
+    const newEnqObj: Enquiry = {
+      id: tempId,
+      name: newEnquiry.name,
+      contact: newEnquiry.contact,
+      whatsapp: newEnquiry.whatsapp || "",
+      address: newEnquiry.address || "",
+      current_class: newEnquiry.current_class || "",
+      notes: newEnquiry.notes || "",
+      status: "New" as EnquiryStatus,
+      created_at: new Date().toISOString()
+    };
+
+    // Optimistically update the enquiries list instantly
+    setEnquiries(prev => [newEnqObj, ...prev]);
+
+    // Keep the form open but clear fields immediately for seamless next-entry experience
+    setNewEnquiry({
+      name: "",
+      contact: "",
+      whatsapp: "",
+      address: "",
+      current_class: "",
+      notes: "",
+      status: "New"
     });
-    if (result.success) {
-      if ((result as any).dbSynced === false) {
-        setSyncWarning("We successfully saved the entry locally in your browser. However, we could not sync it to your remote Supabase database. This usually means the public.enquiries table has not been created yet in Supabase SQL editor!");
-      } else {
-        setSyncWarning(null);
+
+    // Provide immediate visual success cues
+    setSuccessMsg(`Enquiry for "${newEnqObj.name}" saved successfully!`);
+    setTimeout(() => {
+      setSuccessMsg(null);
+    }, 4000);
+
+    // Perform database syncing in the background so there's zero UI freeze or delay
+    api.addEnquiry(newEnqObj).then((result) => {
+      if (result && result.success) {
+        if ((result as any).dbSynced === false) {
+          setSyncWarning("We successfully saved the entry locally in your browser. However, we could not sync it to your remote Supabase database. This usually means the public.enquiries table has not been created yet in Supabase SQL editor!");
+        } else {
+          setSyncWarning(null);
+        }
       }
-      setSuccessMsg(`Enquiry for "${newEnquiry.name}" saved successfully!`);
-      setTimeout(() => {
-        setSuccessMsg(null);
-      }, 4000);
-      await fetchEnquiries();
-      // Keep the form open as requested
-      setNewEnquiry({
-        name: "",
-        contact: "",
-        whatsapp: "",
-        address: "",
-        current_class: "",
-        notes: "",
-        status: "New"
-      });
-    }
-    setLoading(false);
+    }).catch(err => {
+      console.error("Error in background database sync:", err);
+    });
   };
 
   const handleStatusChange = async (id: string, newStatus: EnquiryStatus) => {
