@@ -160,8 +160,6 @@ CREATE TABLE IF NOT EXISTS public.enquiries (
     whatsapp TEXT,
     address TEXT,
     current_class TEXT,
-    dob TEXT,
-    interested_course TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'New',
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL

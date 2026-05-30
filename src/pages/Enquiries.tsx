@@ -16,8 +16,6 @@ interface Enquiry {
   whatsapp?: string;
   address?: string;
   current_class?: string;
-  dob?: string;
-  interested_course: string;
   status: EnquiryStatus;
   notes?: string;
   created_at: string;
@@ -42,8 +40,6 @@ export function Enquiries() {
     whatsapp: "",
     address: "",
     current_class: "",
-    dob: "",
-    interested_course: "",
     notes: "",
     status: "New" as EnquiryStatus
   });
@@ -68,8 +64,7 @@ export function Enquiries() {
     if (!newEnquiry.name || !newEnquiry.contact) return;
     setLoading(true);
     const result = await api.addEnquiry({
-      ...newEnquiry,
-      interested_course: newEnquiry.interested_course || "General Enquiry"
+      ...newEnquiry
     });
     if (result.success) {
       if ((result as any).dbSynced === false) {
@@ -85,8 +80,6 @@ export function Enquiries() {
         whatsapp: "",
         address: "",
         current_class: "",
-        dob: "",
-        interested_course: "",
         notes: "",
         status: "New"
       });
@@ -124,7 +117,6 @@ export function Enquiries() {
     const matchesSearch = 
       enq.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
       enq.contact.includes(searchTerm) || 
-      (enq.interested_course && enq.interested_course.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (enq.whatsapp && enq.whatsapp.includes(searchTerm)) ||
       (enq.address && enq.address.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (enq.current_class && enq.current_class.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -179,7 +171,7 @@ export function Enquiries() {
           <div className="flex gap-2 shrink-0 self-start md:self-center">
             <Button
               onClick={() => {
-                alert(`Please run the following SQL script in your Supabase SQL Editor to sync your live database:\n\nCREATE TABLE IF NOT EXISTS public.enquiries (\n    id TEXT PRIMARY KEY DEFAULT uuid_generate_v4(),\n    name TEXT NOT NULL,\n    contact TEXT NOT NULL,\n    whatsapp TEXT,\n    address TEXT,\n    current_class TEXT,\n    dob TEXT,\n    interested_course TEXT NOT NULL,\n    status TEXT NOT NULL DEFAULT 'New',\n    notes TEXT,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\nALTER TABLE public.enquiries ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Enable all for anon" ON public.enquiries FOR ALL USING (true);\n\nGRANT ALL ON TABLE public.enquiries TO anon, authenticated, service_role;`);
+                alert(`Please run the following SQL script in your Supabase SQL Editor to sync your live database:\n\nCREATE TABLE IF NOT EXISTS public.enquiries (\n    id TEXT PRIMARY KEY DEFAULT uuid_generate_v4(),\n    name TEXT NOT NULL,\n    contact TEXT NOT NULL,\n    whatsapp TEXT,\n    address TEXT,\n    current_class TEXT,\n    status TEXT NOT NULL DEFAULT 'New',\n    notes TEXT,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\nALTER TABLE public.enquiries ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Enable all for anon" ON public.enquiries FOR ALL USING (true);\n\nGRANT ALL ON TABLE public.enquiries TO anon, authenticated, service_role;`);
               }}
               variant="outline"
               className="bg-white hover:bg-slate-50 text-amber-900 border-amber-300 font-bold px-3 py-1.5 text-xs rounded-full h-8 cursor-pointer shadow-sm"
@@ -245,29 +237,11 @@ export function Enquiries() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs font-bold text-slate-700">DOB (Date of Birth)</Label>
-                    <Input 
-                      type="date"
-                      value={newEnquiry.dob} 
-                      onChange={(e) => setNewEnquiry({...newEnquiry, dob: e.target.value})}
-                      className="bg-white"
-                    />
-                  </div>
-                  <div className="space-y-2">
                     <Label className="text-xs font-bold text-slate-700">Current Class</Label>
                     <Input 
                       placeholder="e.g. Class 10" 
                       value={newEnquiry.current_class} 
                       onChange={(e) => setNewEnquiry({...newEnquiry, current_class: e.target.value})}
-                      className="bg-white"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs font-bold text-slate-700">Interested Course / Batch</Label>
-                    <Input 
-                      placeholder="e.g. 10th Grade Maths" 
-                      value={newEnquiry.interested_course} 
-                      onChange={(e) => setNewEnquiry({...newEnquiry, interested_course: e.target.value})}
                       className="bg-white"
                     />
                   </div>
@@ -280,7 +254,7 @@ export function Enquiries() {
                       className="bg-white"
                     />
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-2 lg:col-span-3">
                     <Label className="text-xs font-bold text-slate-700">Notes (Optional)</Label>
                     <Input 
                       placeholder="Additional details..." 
@@ -344,9 +318,9 @@ export function Enquiries() {
             <table className="w-full text-left border-collapse">
               <thead className="bg-slate-50/50 text-[10px] uppercase font-black text-slate-400 tracking-widest border-b border-slate-100">
                 <tr>
-                  <th className="px-6 py-4">Student Info & DOB</th>
+                  <th className="px-6 py-4">Student Info</th>
                   <th className="px-6 py-4">Contact & WhatsApp</th>
-                  <th className="px-6 py-4">Class & Course Interest</th>
+                  <th className="px-6 py-4">Current Class</th>
                   <th className="px-6 py-4">Address</th>
                   <th className="px-6 py-4">Status & Notes</th>
                   <th className="px-6 py-4">Date</th>
@@ -373,9 +347,6 @@ export function Enquiries() {
                           </div>
                           <div>
                             <p className="text-sm font-bold text-slate-900 group-hover/name:text-primary transition-colors">{enq.name}</p>
-                            {enq.dob && (
-                              <p className="text-[11px] text-slate-500 mt-0.5">🍰 DOB: {new Date(enq.dob).toLocaleDateString()}</p>
-                            )}
                           </div>
                         </div>
                       </td>
@@ -389,12 +360,11 @@ export function Enquiries() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="space-y-1">
-                          {enq.current_class && (
+                          {enq.current_class ? (
                             <span className="text-[10px] font-bold text-purple-700 bg-purple-50 border border-purple-100 px-1.5 py-0.5 rounded">
                               Class: {enq.current_class}
                             </span>
-                          )}
-                          <p className="font-medium text-slate-700 text-xs mt-0.5">{enq.interested_course || "General Enquiry"}</p>
+                          ) : "—"}
                         </div>
                       </td>
                       <td className="px-6 py-4 max-w-[160px] truncate">
@@ -544,22 +514,11 @@ export function Enquiries() {
                     <p className="text-sm font-bold text-[#1CA751] select-all">{viewingEnquiry.whatsapp || "Not provided"}</p>
                   </div>
                   <div className="space-y-1">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date of Birth</p>
-                    <p className="text-sm font-bold text-slate-700">{viewingEnquiry.dob || "Not provided"}</p>
-                  </div>
-                  <div className="space-y-1">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Current Class</p>
                     <p className="text-sm font-bold text-purple-700 bg-purple-50 inline-block px-2 py-0.5 rounded border border-purple-100 italic">
                       {viewingEnquiry.current_class || "Not provided"}
                     </p>
                   </div>
-                </div>
-
-                <div className="space-y-1 pt-2">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Interested Course / Batch</p>
-                  <p className="text-sm font-bold text-slate-700 leading-relaxed">
-                    {viewingEnquiry.interested_course || "General Enquiry"}
-                  </p>
                 </div>
 
                 <div className="space-y-1 pt-2">
