@@ -731,11 +731,10 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
         </motion.div>
 
         {/* Small KPI Grid */}
-        <motion.div variants={itemVariants} className="md:col-span-2 lg:col-span-2 grid grid-cols-2 gap-4">
+        <motion.div variants={itemVariants} className="md:col-span-2 lg:col-span-2 grid grid-cols-3 gap-4">
           {[
              { title: "Total Students", value: stats.students },
              { title: "Total Staff", value: stats.staff },
-             { title: "Fees Collected", value: `₹${(stats.fees/1000).toFixed(1)}k` },
              { title: "Resources", value: stats.resources }
           ].map((kpi, idx) => (
              <Card key={idx} className="bg-white rounded-[20px] border border-slate-100/60 shadow-[0_4px_24px_rgba(0,0,0,0.02)] p-5 flex flex-col justify-center hover:shadow-[0_6px_20px_rgba(0,0,0,0.04)] transition-all duration-300">
