@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../co
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
-import { MessageSquareText, Search, Plus, Trash2, CheckCircle2, UserPlus, Clock, Loader2, Download, Upload, Edit } from "lucide-react";
+import { MessageSquareText, Search, Plus, Trash2, CheckCircle2, UserPlus, Clock, Loader2, Download, Upload, Edit, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { api, apiCache } from "../lib/api";
 import Papa from "papaparse";
@@ -39,6 +39,41 @@ export function Enquiries() {
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
+
+  // Sorting state
+  const [sortField, setSortField] = useState<'name' | 'current_class' | 'status' | 'created_at'>('created_at');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  const toggleSort = (field: 'name' | 'current_class' | 'status' | 'created_at') => {
+    if (sortField === field) {
+      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const renderSortHeader = (field: 'name' | 'current_class' | 'status' | 'created_at', label: string) => {
+    const isSorted = sortField === field;
+    return (
+      <button
+        type="button"
+        onClick={() => toggleSort(field)}
+        className="flex items-center gap-1 hover:text-slate-700 transition-colors uppercase font-black tracking-widest text-[10px]"
+      >
+        <span>{label}</span>
+        {isSorted ? (
+          sortOrder === 'asc' ? (
+            <ArrowUp className="w-3.5 h-3.5 text-primary" />
+          ) : (
+            <ArrowDown className="w-3.5 h-3.5 text-primary" />
+          )
+        ) : (
+          <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+        )}
+      </button>
+    );
+  };
   
   const [newEnquiry, setNewEnquiry] = useState({
     name: "",
@@ -62,16 +97,119 @@ export function Enquiries() {
     link.click();
   };
 
+  const handleDownloadTemplate = () => {
+    const templateData = [
+      {
+        "Student Name": "John Doe",
+        "Phone Number": "+91 98765 00001",
+        "WhatsApp Number": "+91 98765 00001",
+        "Current Class": "Class 10",
+        "Address": "123 Main Street, New Delhi",
+        "Status": "New",
+        "Notes": "Looking for evening coaching batches."
+      },
+      {
+        "Student Name": "Jane Smith",
+        "Phone Number": "+91 98765 00002",
+        "WhatsApp Number": "+91 98765 00002",
+        "Current Class": "Class 12",
+        "Address": "456 Oak Avenue, Mumbai",
+        "Status": "Follow-up",
+        "Notes": "Scheduled demo class on next Monday."
+      }
+    ];
+    const csv = Papa.unparse(templateData);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "enquiries_import_template.csv";
+    link.click();
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setInitialLoading(true);
       Papa.parse(file, {
         header: true,
+        skipEmptyLines: true,
         complete: async (results) => {
-          alert(`Successfully parsed ${results.data.length} rows from CSV.`);
-          // Iterate and add them or batch insert. We will just reload for now, 
-          // or user can do it manually. In a real application, you map to fields.
-          // Because api.addEnquiry does not support batch yet, we just alert.
+          const parsedRows = results.data as any[];
+          if (!parsedRows || parsedRows.length === 0) {
+            setSyncWarning("No valid data rows found in the uploaded CSV file.");
+            setInitialLoading(false);
+            return;
+          }
+
+          let successCount = 0;
+          let failCount = 0;
+
+          // Align parsed keys with potential column synonymous headers
+          const enquiriesToInsert = parsedRows.map((row: any) => {
+            const findValue = (keys: string[]) => {
+              const csvKey = Object.keys(row).find(k => 
+                keys.some(key => k.toLowerCase().trim() === key.toLowerCase() || k.toLowerCase().trim().includes(key.toLowerCase()))
+              );
+              return csvKey ? row[csvKey]?.toString()?.trim() : "";
+            };
+
+            const name = findValue(["student name", "name", "candidate", "full name", "first name"]);
+            const contact = findValue(["phone number", "phone", "contact", "contact number", "mobile", "tel"]);
+            const whatsapp = findValue(["whatsapp", "whatsapp number", "wa"]) || contact;
+            const current_class = findValue(["current class", "class", "grade", "standard", "admission class"]);
+            const address = findValue(["address", "location", "city", "residence"]);
+            const notes = findValue(["notes", "remarks", "comment", "enquiry details", "about"]);
+            
+            const statusRaw = findValue(["status", "enquiry status", "stage"])?.toLowerCase();
+            let status: EnquiryStatus = "New";
+            if (statusRaw && ["new", "follow-up", "followup", "converted", "dropped"].includes(statusRaw)) {
+              if (statusRaw === "followup" || statusRaw === "follow-up") {
+                status = "Follow-up";
+              } else {
+                status = (statusRaw.charAt(0).toUpperCase() + statusRaw.slice(1)) as EnquiryStatus;
+              }
+            }
+
+            return {
+              name,
+              contact,
+              whatsapp,
+              current_class,
+              address,
+              notes,
+              status
+            };
+          }).filter((enq: any) => enq.name && enq.contact); // require name and contact numbers
+
+          if (enquiriesToInsert.length === 0) {
+            alert("No valid entries could be imported. Make sure your CSV has 'Student Name' and 'Phone Number' columns.");
+            setInitialLoading(false);
+            return;
+          }
+
+          for (const item of enquiriesToInsert) {
+            try {
+              const res = await api.addEnquiry({
+                ...item,
+                created_at: new Date().toISOString()
+              });
+              if (res && res.success) {
+                successCount++;
+              } else {
+                failCount++;
+              }
+            } catch (err) {
+              console.error("Bulk upload import single row exception:", err);
+              failCount++;
+            }
+          }
+
+          setSuccessMsg(`Bulk Import Completed! Successfully imported ${successCount} enquiries.`);
+          setTimeout(() => {
+            setSuccessMsg(null);
+          }, 6000);
+
+          await fetchEnquiries();
         }
       });
     }
@@ -258,10 +396,26 @@ export function Enquiries() {
   });
 
   // Pagination logic
+  const sortedEnquiries = React.useMemo(() => {
+    const sorted = [...filteredEnquiries];
+    sorted.sort((a, b) => {
+      let valA = a[sortField] || "";
+      let valB = b[sortField] || "";
+      
+      if (typeof valA === 'string') valA = valA.toLowerCase();
+      if (typeof valB === 'string') valB = valB.toLowerCase();
+      
+      if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return sorted;
+  }, [filteredEnquiries, sortField, sortOrder]);
+
   const totalResults = filteredEnquiries.length;
   const totalPages = Math.ceil(totalResults / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedEnquiries = filteredEnquiries.slice(startIndex, startIndex + itemsPerPage);
+  const paginatedEnquiries = sortedEnquiries.slice(startIndex, startIndex + itemsPerPage);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -290,8 +444,11 @@ export function Enquiries() {
             ref={fileInputRef} 
             onChange={handleFileUpload} 
           />
+          <Button variant="outline" onClick={handleDownloadTemplate} className="rounded-full shadow-sm text-sm text-slate-600 hover:text-slate-900">
+            <Download className="mr-2 h-4 w-4 text-emerald-600" /> CSV Template
+          </Button>
           <Button variant="outline" onClick={() => fileInputRef.current?.click()} className="rounded-full shadow-sm text-sm">
-            <Upload className="mr-2 h-4 w-4" /> Import CSV
+            <Upload className="mr-2 h-4 w-4 text-primary" /> Import CSV
           </Button>
           <Button variant="outline" onClick={handleExportCSV} className="rounded-full shadow-sm text-sm">
             <Download className="mr-2 h-4 w-4" /> Export CSV
@@ -460,8 +617,28 @@ export function Enquiries() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <div className="text-xs font-bold text-slate-500 whitespace-nowrap bg-white px-3 py-2 rounded-full border border-slate-100 shadow-sm">
-                Showing <span className="text-primary">{totalResults}</span> {totalResults === 1 ? 'Result' : 'Results'}
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                <div className="text-xs font-bold text-slate-500 whitespace-nowrap bg-white px-3 py-2 rounded-full border border-slate-100 shadow-sm">
+                  Showing <span className="text-primary">{totalResults}</span> {totalResults === 1 ? 'Result' : 'Results'}
+                </div>
+                <select
+                  value={`${sortField}-${sortOrder}`}
+                  onChange={(e) => {
+                    const [field, order] = e.target.value.split('-') as [any, any];
+                    setSortField(field);
+                    setSortOrder(order);
+                  }}
+                  className="text-xs font-bold bg-white border border-slate-200 rounded-full px-3 py-2 text-slate-600 cursor-pointer hover:border-slate-300 outline-none focus:ring-1 focus:ring-primary shadow-sm h-8 flex items-center"
+                >
+                  <option value="created_at-desc">Sort: Latest First</option>
+                  <option value="created_at-asc">Sort: Oldest First</option>
+                  <option value="name-asc">Sort: Name (A-Z)</option>
+                  <option value="name-desc">Sort: Name (Z-A)</option>
+                  <option value="current_class-asc">Sort: Class (Asc)</option>
+                  <option value="current_class-desc">Sort: Class (Desc)</option>
+                  <option value="status-asc">Sort: Status (Asc)</option>
+                  <option value="status-desc">Sort: Status (Desc)</option>
+                </select>
               </div>
             </div>
             <div className="flex bg-slate-100 p-1 rounded-full w-full md:w-auto overflow-x-auto justify-center sm:justify-start">
@@ -486,12 +663,12 @@ export function Enquiries() {
             <table className="w-full text-left border-collapse">
               <thead className="bg-slate-50/50 text-[10px] uppercase font-black text-slate-400 tracking-widest border-b border-slate-100">
                 <tr>
-                  <th className="px-6 py-4">Student Info</th>
+                  <th className="px-6 py-4">{renderSortHeader('name', 'Student Info')}</th>
                   <th className="px-6 py-4">Contact & WhatsApp</th>
-                  <th className="px-6 py-4">Current Class</th>
+                  <th className="px-6 py-4">{renderSortHeader('current_class', 'Current Class')}</th>
                   <th className="px-6 py-4">Address</th>
-                  <th className="px-6 py-4">Status & Notes</th>
-                  <th className="px-6 py-4">Date</th>
+                  <th className="px-6 py-4">{renderSortHeader('status', 'Status & Notes')}</th>
+                  <th className="px-6 py-4">{renderSortHeader('created_at', 'Date')}</th>
                   <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
               </thead>
