@@ -185,3 +185,20 @@ GRANT ALL ON TABLE public.users TO anon, authenticated, service_role;
 GRANT ALL ON TABLE public.role_permissions TO anon, authenticated, service_role;
 GRANT ALL ON TABLE public.enquiries TO anon, authenticated, service_role;
 
+-------------------------------------------------------------------------------
+-- 11. Grades Table
+-------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.grades (
+    id TEXT PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE public.grades ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Enable all for anon" ON public.grades;
+CREATE POLICY "Enable all for anon" ON public.grades FOR ALL USING (true);
+GRANT ALL ON TABLE public.grades TO anon, authenticated, service_role;
+
+

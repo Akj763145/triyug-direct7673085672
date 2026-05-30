@@ -22,7 +22,8 @@ import {
   Percent,
   Send,
   Lock,
-  ExternalLink
+  ExternalLink,
+  X
 } from 'lucide-react';
 import { 
   Card, 
@@ -47,6 +48,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 
 // Interfaces aligning with Prisma/Express Backends
 interface Batch {
@@ -217,8 +219,17 @@ export default function Batches() {
   const [isManageCategoriesOpen, setIsManageCategoriesOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
 
+  // Grades State
+  const [grades, setGrades] = useState<any[]>([]);
+  const [isAddingGrade, setIsAddingGrade] = useState(false);
+  const [newGradeName, setNewGradeName] = useState('');
+  const [newGradeDesc, setNewGradeDesc] = useState('');
+
   const fetchCategoriesAndStaff = async () => {
     try {
+      const dbGrades = await api.getGrades();
+      if(dbGrades) setGrades(dbGrades);
+
       const resCat = await fetch('/api/stream-categories');
       if (resCat.ok) {
         const json = await resCat.json();
@@ -291,6 +302,27 @@ export default function Batches() {
       fetchCategoriesAndStaff()
     ]);
     setLoading(false);
+  };
+
+  const handleAddGrade = async () => {
+    if (!newGradeName.trim()) return;
+    setIsSubmitting(true);
+    await api.addGrade({
+      name: newGradeName,
+      description: newGradeDesc
+    });
+    setNewGradeName('');
+    setNewGradeDesc('');
+    setIsAddingGrade(false);
+    fetchCategoriesAndStaff();
+    setIsSubmitting(false);
+  };
+
+  const handleDeleteGrade = async (id: string) => {
+    if (confirm("Are you sure you want to delete this grade category?")) {
+      await api.deleteGrade(id);
+      fetchCategoriesAndStaff();
+    }
   };
 
   useEffect(() => {
@@ -838,9 +870,12 @@ export default function Batches() {
 
       {/* Dynamic Tabs Layout */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="mb-6 h-12 w-full justify-start max-w-md ml-0 bg-transparent p-0 gap-4 border-b border-border/40 rounded-none">
+        <TabsList className="mb-6 h-12 w-full justify-start max-w-2xl ml-0 bg-transparent p-0 gap-4 border-b border-border/40 rounded-none overflow-x-auto">
           <TabsTrigger value="ledger" className="font-black text-xs uppercase tracking-widest h-11 border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none rounded-none px-4">
             <Layers className="h-3 w-3 mr-1.5" /> Active Ledger
+          </TabsTrigger>
+          <TabsTrigger value="grades" className="font-black text-xs uppercase tracking-widest h-11 border-b-2 border-transparent data-[state=active]:border-orange-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none rounded-none px-4 text-orange-600 data-[state=active]:text-orange-500">
+            <BookOpen className="h-3 w-3 mr-1.5" /> Grades Setup
           </TabsTrigger>
           <TabsTrigger value="builder" className="font-black text-xs uppercase tracking-widest h-11 border-b-2 border-transparent data-[state=active]:border-emerald-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none rounded-none px-4 text-emerald-600 data-[state=active]:text-emerald-500">
             <Sparkles className="h-3 w-3 mr-1.5" /> Advanced Batch Builder
@@ -852,6 +887,67 @@ export default function Batches() {
             <Calculator className="h-3 w-3 mr-1.5" /> Simulation Engine
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="grades" className="mt-0 focus-visible:outline-none focus:outline-none">
+          <Card className="border-border/60 shadow-[0_4px_24px_rgba(var(--primary),0.04)]">
+            <CardHeader className="pb-2 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+              <div>
+                <CardTitle className="text-lg font-black tracking-tight uppercase">Grade & Class Configuration</CardTitle>
+                <CardDescription className="text-xs">
+                  Create and manage the grades/classes (e.g., Class 9, Class 10) available across the application.
+                </CardDescription>
+              </div>
+              <Button onClick={() => setIsAddingGrade(true)} className="h-9 shrink-0 gap-2 font-bold text-xs">
+                <Plus className="h-4 w-4" /> Add Grade / Class
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {isAddingGrade && (
+                <div className="mb-6 bg-slate-50 border border-slate-100 p-4 rounded-xl space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-sm font-bold">New Grade Category</h3>
+                    <button onClick={() => setIsAddingGrade(false)} className="text-slate-400 hover:text-slate-600">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-500">Grade Name *</label>
+                      <Input value={newGradeName} onChange={e => setNewGradeName(e.target.value)} placeholder="e.g. Class 11" className="bg-white" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-500">Description (Optional)</label>
+                      <Input value={newGradeDesc} onChange={e => setNewGradeDesc(e.target.value)} placeholder="e.g. Science & Commerce" className="bg-white" />
+                    </div>
+                  </div>
+                  <Button onClick={handleAddGrade} disabled={isSubmitting || !newGradeName.trim()} className="w-full sm:w-auto h-9">
+                    {isSubmitting ? 'Saving...' : 'Save Category'}
+                  </Button>
+                </div>
+              )}
+
+              <div className="grid gap-3">
+                {grades.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500 text-sm">
+                    No grade categories configured yet.
+                  </div>
+                ) : (
+                  grades.map(grade => (
+                    <div key={grade.id} className="flex items-center justify-between p-4 border border-slate-100 rounded-xl hover:bg-slate-50 transition-colors">
+                      <div>
+                        <div className="font-bold text-slate-900 group-hover:text-primary transition-colors">{grade.name}</div>
+                        <div className="text-xs text-slate-500 mt-1">{grade.description || 'No description provided'}</div>
+                      </div>
+                      <Button variant="ghost" size="icon" onClick={() => handleDeleteGrade(grade.id)} className="text-red-500 hover:text-red-600 hover:bg-red-50">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="builder" className="mt-0 focus-visible:outline-none focus:outline-none">
           <div className="max-w-6xl mx-auto pb-12 mt-2">

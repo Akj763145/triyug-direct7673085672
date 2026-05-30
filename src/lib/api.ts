@@ -30,6 +30,14 @@ function getLocalFallback(table: string): any[] {
         { id: 'USR-002', username: 'receptionist', full_name: 'Office Receptionist', role: 'Receptionist' }
       ];
     }
+    if (table === 'grades') {
+      return [
+        { id: 'GRD-9', name: 'Class 9', description: 'Ninth Grade' },
+        { id: 'GRD-10', name: 'Class 10', description: 'Tenth Grade' },
+        { id: 'GRD-11', name: 'Class 11', description: 'Eleventh Grade' },
+        { id: 'GRD-12', name: 'Class 12', description: 'Twelfth Grade' }
+      ];
+    }
     if (table === 'enquiries') {
       return [];
     }
@@ -220,6 +228,33 @@ export const api = {
   getResources: () => fetchFromSupabase('resources'),
   updateResourceStatus: (id: string, status: string) => updateInSupabase('resources', id, { status }),
   
+  getGrades: () => fetchFromSupabase('grades'),
+  addGrade: async (grade: any) => {
+    const id = grade.id || `GRD-${Math.floor(Math.random() * 10000)}`;
+    return insertToSupabase('grades', { ...grade, id });
+  },
+  updateGrade: (id: string, grade: any) => updateInSupabase('grades', id, grade),
+  deleteGrade: async (id: string) => {
+    invalidateApiCache('grades');
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('grades').delete().eq('id', id);
+        if (!error) {
+          const current = getLocalFallback('grades');
+          const filtered = current.filter((g: any) => g.id !== id);
+          setLocalFallback('grades', filtered);
+        }
+        return { success: !error, error };
+      } catch (e) {
+        return { success: false, error: e };
+      }
+    }
+    const current = getLocalFallback('grades');
+    const filtered = current.filter((g: any) => g.id !== id);
+    setLocalFallback('grades', filtered);
+    return { success: true, error: null };
+  },
+
   getActivityLogs: () => fetchFromSupabase('activity_logs'),
   addActivityLog: (log: Omit<ActivityLog, 'id'>) => insertToSupabase('activity_logs', log),
 

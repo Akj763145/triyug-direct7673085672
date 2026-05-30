@@ -16,13 +16,10 @@ const wizardSchema = z.object({
   lastName: z.string().min(2, "Required"),
   dateOfBirth: z.string().min(1, "DOB is required"),
   gender: z.string().min(1, "Required"),
-  bloodGroup: z.string().optional(),
   nationality: z.string().default("Domestic"),
   isInternational: z.boolean().default(false),
   passportNumber: z.string().optional(),
   visaStatus: z.string().optional(),
-  motherTongue: z.string().optional(),
-  primaryLanguage: z.string().optional(),
   grade: z.string().min(1, "Grade is required"),
   batchId: z.string().min(1, "Batch is required"),
   installmentsCount: z.string().min(1, "Installments count is required"),
@@ -30,7 +27,6 @@ const wizardSchema = z.object({
   parent1Name: z.string().min(2, "Required"),
   parent1Relation: z.string().min(2, "Required"),
   parent1Occupation: z.string().optional(),
-  parent1Income: z.string().optional(),
   parent1Email: z.string().email("Invalid email").optional().or(z.literal('')),
   parent1Contact: z.string().regex(/^\d{10}$/, "Must be 10 digits"),
 
@@ -47,9 +43,9 @@ const wizardSchema = z.object({
   allergies: z.string().optional(),
   medicalConditions: z.string().optional(),
   dailyMedications: z.string().optional(),
-  emergencyContactName: z.string().min(2, "Required"),
+  emergencyContactName: z.string().optional(),
   emergencyContactRelation: z.string().optional(),
-  emergencyContactNumber: z.string().regex(/^\d{10}$/, "Must be 10 digits"),
+  emergencyContactNumber: z.string().optional(),
 });
 
 type WizardFormValues = z.infer<typeof wizardSchema>;
@@ -57,8 +53,7 @@ type WizardFormValues = z.infer<typeof wizardSchema>;
 const STEPS = [
   { id: 1, title: "Student details", icon: User },
   { id: 2, title: "Parent & Address", icon: Users },
-  { id: 3, title: "Academics & Med", icon: GraduationCap },
-  { id: 4, title: "Documents", icon: FileText },
+  { id: 3, title: "Documents", icon: FileText },
 ];
 
 interface DocumentDropzoneProps {
@@ -112,11 +107,14 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
   const [documents, setDocuments] = useState<Record<string, File>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [availableBatches, setAvailableBatches] = useState<any[]>([]);
+  const [availableGrades, setAvailableGrades] = useState<any[]>([]);
 
   React.useEffect(() => {
     (async () => {
       const data = await api.getBatches();
       if (data) setAvailableBatches(data);
+      const gradesData = await api.getGrades();
+      if (gradesData) setAvailableGrades(gradesData);
     })();
   }, []);
 
@@ -127,7 +125,8 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
     watch,
     trigger,
     formState: { errors },
-    reset
+    reset,
+    setValue
   } = useForm<WizardFormValues>({
     // @ts-ignore
     resolver: zodResolver(wizardSchema),
@@ -141,15 +140,31 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
   const dob = watch("dateOfBirth");
   const selectedBatchId = watch("batchId");
   const selectedBatch = availableBatches.find(b => b.id === selectedBatchId);
+  
+  const [isAddingGrade, setIsAddingGrade] = useState(false);
+  const [newGradeName, setNewGradeName] = useState("");
+  const [isAddingGradeSubmitting, setIsAddingGradeSubmitting] = useState(false);
+
+  const handleCreateGrade = async () => {
+    if (!newGradeName.trim()) return;
+    setIsAddingGradeSubmitting(true);
+    const newGrade = { name: newGradeName };
+    const res = await api.addGrade(newGrade);
+    if (res.data && res.data.length > 0) {
+      setAvailableGrades([...availableGrades, res.data[0]]);
+      setValue("grade", res.data[0].name, { shouldValidate: true });
+      setNewGradeName("");
+      setIsAddingGrade(false);
+    }
+    setIsAddingGradeSubmitting(false);
+  };
 
   const nextStep = async () => {
     let fieldsToValidate: (keyof WizardFormValues)[] = [];
     if (currentStep === 1) {
-      fieldsToValidate = ['firstName', 'lastName', 'dateOfBirth', 'gender', 'grade', 'batchId', 'installmentsCount', 'bloodGroup', 'motherTongue', 'primaryLanguage'];
+      fieldsToValidate = ['firstName', 'lastName', 'dateOfBirth', 'gender', 'grade', 'batchId', 'installmentsCount'];
     } else if (currentStep === 2) {
-      fieldsToValidate = ['parent1Name', 'parent1Relation', 'parent1Contact', 'parent1Email', 'parent1Occupation', 'parent1Income', 'addressLine1', 'city', 'state', 'zipCode'];
-    } else if (currentStep === 3) {
-      fieldsToValidate = ['emergencyContactName', 'emergencyContactNumber', 'previousSchool', 'lastGradeCompleted', 'previousGpa', 'reasonForLeaving', 'allergies', 'medicalConditions', 'dailyMedications'];
+      fieldsToValidate = ['parent1Name', 'parent1Relation', 'parent1Contact', 'parent1Email', 'parent1Occupation', 'addressLine1', 'city', 'state', 'zipCode'];
     }
 
     const isStepValid = await trigger(fieldsToValidate);
@@ -162,8 +177,8 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
 
   const onSubmit = async (data: any) => {
     // Prevent implicit submission (like pressing Enter) before the final step
-    if (currentStep !== 4) {
-      if (currentStep < 4) {
+    if (currentStep !== 3) {
+      if (currentStep < 3) {
         nextStep();
       }
       return;
@@ -198,20 +213,16 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
         last_name: data.lastName,
         date_of_birth: data.dateOfBirth,
         gender: data.gender,
-        blood_group: data.bloodGroup,
         nationality: data.nationality,
         is_international: data.isInternational,
         passport_number: data.passportNumber,
         visa_status: data.visaStatus,
-        mother_tongue: data.motherTongue,
-        primary_language: data.primaryLanguage,
         grade: data.grade,
         batch_id: data.batchId,
         installments_count: parseInt(data.installmentsCount || "1", 10),
         parent1_name: data.parent1Name,
         parent1_relation: data.parent1Relation,
         parent1_occupation: data.parent1Occupation,
-        parent1_income: data.parent1Income,
         parent1_email: data.parent1Email,
         parent1_contact: data.parent1Contact,
         address_line1: data.addressLine1,
@@ -341,9 +352,9 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
           <div className="md:col-span-3 p-6 flex flex-col max-h-[85vh] overflow-y-auto">
             {/* Mobile Progress */}
             <div className="md:hidden flex items-center justify-between mb-6">
-               <p className="font-bold text-sm tracking-widest uppercase">Step {currentStep} of 4</p>
+               <p className="font-bold text-sm tracking-widest uppercase">Step {currentStep} of 3</p>
                <div className="flex gap-1">
-                  {[1,2,3,4].map(s => (
+                  {[1,2,3].map(s => (
                     <div key={s} className={`h-1.5 w-6 rounded-full ${s <= currentStep ? 'bg-primary' : 'bg-muted'}`} />
                   ))}
                </div>
@@ -409,15 +420,44 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                           {errors.gender && <span className="text-[10px] text-destructive">{errors.gender.message}</span>}
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Grade *</label>
-                          <select {...register("grade")} className="w-full h-9 px-3 py-1 bg-background border border-input rounded-md text-sm">
-                            <option value="">Select...</option>
-                            <option value="9th">9th Grade</option>
-                            <option value="10th">10th Grade</option>
-                            <option value="11th">11th Grade</option>
-                            <option value="12th">12th Grade</option>
-                          </select>
-                          {errors.grade && <span className="text-[10px] text-destructive">{errors.grade.message}</span>}
+                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex justify-between items-center">
+                            <span>Grade *</span>
+                            <button
+                              type="button"
+                              onClick={() => setIsAddingGrade(!isAddingGrade)}
+                              className="text-[10px] text-primary hover:underline font-bold focus:outline-none"
+                            >
+                              {isAddingGrade ? 'Cancel' : '+ Add New'}
+                            </button>
+                          </label>
+                          {isAddingGrade ? (
+                            <div className="flex gap-2">
+                              <Input 
+                                value={newGradeName} 
+                                onChange={(e) => setNewGradeName(e.target.value)} 
+                                placeholder="New grade name..." 
+                                className="h-9"
+                              />
+                              <Button 
+                                type="button" 
+                                onClick={handleCreateGrade} 
+                                disabled={!newGradeName.trim() || isAddingGradeSubmitting}
+                                className="h-9 px-3 shrink-0"
+                              >
+                                Save
+                              </Button>
+                            </div>
+                          ) : (
+                            <div>
+                              <select {...register("grade")} className="w-full h-9 px-3 py-1 bg-background border border-input rounded-md text-sm">
+                                <option value="">Select...</option>
+                                {availableGrades.map((g) => (
+                                  <option key={g.id} value={g.name}>{g.name}</option>
+                                ))}
+                              </select>
+                              {errors.grade && <span className="text-[10px] text-destructive">{errors.grade.message}</span>}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -441,21 +481,6 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                             ))}
                           </select>
                           {errors.installmentsCount && <span className="text-[10px] text-destructive">{errors.installmentsCount.message}</span>}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Blood Group</label>
-                          <Input {...register("bloodGroup")} placeholder="e.g. O+" />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Mother Tongue</label>
-                          <Input {...register("motherTongue")} />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Primary Lang</label>
-                          <Input {...register("primaryLanguage")} />
                         </div>
                       </div>
 
@@ -531,16 +556,6 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Occupation</label>
                             <Input {...register("parent1Occupation")} />
                           </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Annual Income</label>
-                            <select {...register("parent1Income")} className="w-full h-9 px-3 py-1 bg-background border border-input rounded-md text-sm">
-                              <option value="">Select Bracket...</option>
-                              <option value="<5L">Less than 5 Lakhs</option>
-                              <option value="5L-10L">5 Lakhs - 10 Lakhs</option>
-                              <option value="10L-25L">10 Lakhs - 25 Lakhs</option>
-                              <option value=">25L">More than 25 Lakhs</option>
-                            </select>
-                          </div>
                         </div>
                       </div>
 
@@ -572,69 +587,8 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                     </div>
                   )}
 
-                  {/* STEP 3: Academics & Med */}
+                  {/* STEP 3: Documents */}
                   {currentStep === 3 && (
-                    <div className="space-y-5">
-                      <div className="space-y-4 border-b border-muted/20 pb-4">
-                        <h3 className="font-bold text-sm tracking-tight">Academic History</h3>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Previous School</label>
-                            <Input {...register("previousSchool")} />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Last Grade Completed</label>
-                            <Input {...register("lastGradeCompleted")} />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">GPA / Board Marks</label>
-                            <Input {...register("previousGpa")} />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reason for Leaving</label>
-                            <Input {...register("reasonForLeaving")} />
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4 border-b border-muted/20 pb-4">
-                        <h3 className="font-bold text-sm tracking-tight">Medical Information</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Known Allergies</label>
-                            <Input {...register("allergies")} placeholder="None" />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Daily Medications</label>
-                            <Input {...register("dailyMedications")} placeholder="None" />
-                          </div>
-                          <div className="space-y-1 md:col-span-2">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Pre-existing Medical Conditions</label>
-                            <Input {...register("medicalConditions")} placeholder="None" />
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        <h3 className="font-bold text-sm tracking-tight">Alternative Emergency Contact</h3>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Contact Name *</label>
-                            <Input {...register("emergencyContactName")} />
-                            {errors.emergencyContactName && <span className="text-[10px] text-destructive">{errors.emergencyContactName.message}</span>}
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Contact Number *</label>
-                            <Input {...register("emergencyContactNumber")} maxLength={10} />
-                            {errors.emergencyContactNumber && <span className="text-[10px] text-destructive">{errors.emergencyContactNumber.message}</span>}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* STEP 4: Documents */}
-                  {currentStep === 4 && (
                     <div className="space-y-5">
                       <p className="text-sm text-muted-foreground mb-4 border-b border-muted/20 pb-4">
                         Please upload clear digital copies of the requested documents. Accepted formats are PDF, JPEG, and PNG (Max 5MB each).
@@ -662,7 +616,7 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                   <ChevronLeft className="mr-2 h-4 w-4" /> Back
                 </Button>
                 
-                {currentStep < 4 ? (
+                {currentStep < 3 ? (
                   <Button type="button" onClick={nextStep}>
                     Next Step <ChevronRight className="ml-2 h-4 w-4" />
                   </Button>
