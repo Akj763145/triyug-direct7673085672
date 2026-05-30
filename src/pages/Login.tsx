@@ -89,18 +89,6 @@ export function Login({ onLogin }: { onLogin: () => void }) {
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Sign In"}
             </Button>
             
-            <div className="w-full text-center border-t border-slate-200/50 pt-3 mt-1">
-              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Notice</p>
-              <div className="grid gap-2 text-left">
-                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 flex items-start gap-2">
-                  <Lock className="w-4 h-4 text-slate-600 mt-0.5" />
-                  <p className="text-[11px] font-medium text-slate-600 leading-relaxed">
-                    You can log in using custom accounts created from the <b>Access Controls</b> module. To begin, use the root account:<br/>
-                    <span className="font-mono font-bold text-slate-800 bg-slate-200/50 px-1 py-0.5 rounded">admin</span> / <span className="font-mono font-bold text-slate-800 bg-slate-200/50 px-1 py-0.5 rounded">admin123</span>
-                  </p>
-                </div>
-              </div>
-            </div>
           </CardFooter>
         </form>
       </Card>
