@@ -2,7 +2,7 @@ import { supabase } from './supabase'
 import { Student, Staff, LedgerInvoice, LedgerTransaction, Resource, ActivityLog } from '../types'
 
 // Setup short-lived in-memory lookup cache to provide lightning fast dashboard and profile transitions
-const apiCache = new Map<string, { data: any; timestamp: number }>();
+export const apiCache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL_MS = 60000; // 60 seconds memory cache for repeated views
 
 export function invalidateApiCache(table?: string) {

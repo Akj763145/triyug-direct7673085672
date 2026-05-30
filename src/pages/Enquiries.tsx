@@ -3,9 +3,9 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../co
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
-import { MessageSquareText, Search, Plus, Trash2, CheckCircle2, UserPlus, Clock } from "lucide-react";
+import { MessageSquareText, Search, Plus, Trash2, CheckCircle2, UserPlus, Clock, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { api } from "../lib/api";
+import { api, apiCache } from "../lib/api";
 
 type EnquiryStatus = "New" | "Follow-up" | "Converted" | "Dropped";
 
@@ -22,11 +22,14 @@ interface Enquiry {
 }
 
 export function Enquiries() {
-  const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
+  const [enquiries, setEnquiries] = useState<Enquiry[]>(() => {
+    return (apiCache.get('enquiries')?.data || []) as Enquiry[];
+  });
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("All");
   const [isAdding, setIsAdding] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [syncWarning, setSyncWarning] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [viewingEnquiry, setViewingEnquiry] = useState<Enquiry | null>(null);
@@ -78,10 +81,14 @@ export function Enquiries() {
   }, []);
 
   const fetchEnquiries = async () => {
+    setInitialLoading(true);
     const data = await api.getEnquiries();
     if (data) {
       setEnquiries(data as Enquiry[]);
     }
+    setTimeout(() => {
+      setInitialLoading(false);
+    }, 600);
   };
 
   const handleAdd = async () => {
@@ -397,7 +404,26 @@ export function Enquiries() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {paginatedEnquiries.length === 0 ? (
+                {initialLoading ? (
+                  <tr>
+                    <td colSpan={7} className="py-24 text-center">
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.3 }}
+                        className="flex flex-col items-center justify-center space-y-4"
+                      >
+                        <div className="relative">
+                          <div className="absolute inset-0 rounded-full blur-xl bg-primary/20 animate-pulse"></div>
+                          <Loader2 className="h-10 w-10 text-primary animate-spin relative z-10" />
+                        </div>
+                        <p className="text-sm text-muted-foreground font-medium animate-pulse">
+                          Loading enquiries...
+                        </p>
+                      </motion.div>
+                    </td>
+                  </tr>
+                ) : paginatedEnquiries.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-12 text-center text-slate-500 text-sm">
                       No enquiries found matching your criteria.

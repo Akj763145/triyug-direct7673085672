@@ -23,7 +23,8 @@ import {
   Send,
   Lock,
   ExternalLink,
-  X
+  X,
+  Loader2
 } from 'lucide-react';
 import { 
   Card, 
@@ -48,7 +49,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { supabase } from '../lib/supabase';
-import { api } from '../lib/api';
+import { api, apiCache } from '../lib/api';
 
 // Interfaces aligning with Prisma/Express Backends
 interface Batch {
@@ -301,7 +302,11 @@ export default function Batches() {
       fetchInvoices(),
       fetchCategoriesAndStaff()
     ]);
-    setLoading(false);
+    
+    // Add small visual delay so the user can see the requested loader animation
+    setTimeout(() => {
+      setLoading(false);
+    }, 600);
   };
 
   const handleAddGrade = async () => {
@@ -1399,14 +1404,24 @@ export default function Batches() {
                   <tbody>
                     <AnimatePresence mode="popLayout" initial={false}>
                       {loading ? (
-                        Array.from({ length: 4 }).map((_, i) => (
-                          <tr key={i} className="animate-pulse border-b border-muted/10 h-16">
-                            <td className="px-4 py-2"><Skeleton className="h-4 w-40 mb-1" /><Skeleton className="h-3 w-20" /></td>
-                            <td className="px-4 py-2"><Skeleton className="h-4 w-24 mb-1" /><Skeleton className="h-3 w-16" /></td>
-                            <td className="px-4 py-2"><div className="mx-auto w-20"><Skeleton className="h-7 w-full rounded-lg" /></div></td>
-                            <td className="px-4 py-2 text-right"><div className="flex justify-end gap-2"><Skeleton className="h-8 w-16 rounded-md" /><Skeleton className="h-8 w-16 rounded-md" /><Skeleton className="h-8 w-8 rounded-md" /></div></td>
-                          </tr>
-                        ))
+                        <tr>
+                          <td colSpan={4} className="py-24 text-center">
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.8 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              transition={{ duration: 0.3 }}
+                              className="flex flex-col items-center justify-center space-y-4"
+                            >
+                              <div className="relative">
+                                <div className="absolute inset-0 rounded-full blur-xl bg-primary/20 animate-pulse"></div>
+                                <Loader2 className="h-10 w-10 text-primary animate-spin relative z-10" />
+                              </div>
+                              <p className="text-sm text-muted-foreground font-medium animate-pulse">
+                                Loading batches...
+                              </p>
+                            </motion.div>
+                          </td>
+                        </tr>
                       ) : filteredBatches.length === 0 ? (
                         <tr>
                           <td colSpan={4} className="py-12 text-center text-muted-foreground">

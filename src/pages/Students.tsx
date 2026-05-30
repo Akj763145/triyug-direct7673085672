@@ -5,10 +5,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
-import { Search, Plus, Edit, Eye, ChevronLeft, ChevronRight, UserPlus, Download, Upload, ArrowUpCircle, GraduationCap } from "lucide-react";
+import { Search, Plus, Edit, Eye, ChevronLeft, ChevronRight, UserPlus, Download, Upload, ArrowUpCircle, GraduationCap, Loader2 } from "lucide-react";
 import { Skeleton } from "../components/ui/skeleton";
 import { Checkbox } from "../components/ui/checkbox";
-import { api } from "../lib/api";
+import { api, apiCache } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import { Student } from "../types";
 import Papa from "papaparse";
@@ -18,7 +18,12 @@ import { AddStudentWizard } from "../components/AddStudentWizard";
 export function Students() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
-  const [students, setStudents] = useState<Student[]>([]);
+  const [students, setStudents] = useState<Student[]>(() => {
+    // If we have cached profiles and students, we could theoretically piece them together.
+    // For simplicity, if they aren't fully resolved, we will just await it.
+    // But we don't have synchronous getStudents().
+    return [];
+  });
   const [loading, setLoading] = useState(true);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   
@@ -44,7 +49,11 @@ export function Students() {
     ]);
     setStudents(studentsData as Student[]);
     setBatches(batchesData as any[]);
-    setLoading(false);
+    
+    // Add visual delay so Loader2 shows
+    setTimeout(() => {
+      setLoading(false);
+    }, 600);
   };
 
   const batchMap = React.useMemo(() => {
@@ -204,20 +213,24 @@ export function Students() {
   };
 
   const TableSkeleton = () => (
-    <>
-      {[...Array(5)].map((_, i) => (
-        <TableRow key={i}>
-          <TableCell><Skeleton className="h-4 w-12" /></TableCell>
-          <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-          <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-          <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-          <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-          <TableCell><Skeleton className="h-4 w-28" /></TableCell>
-          <TableCell><Skeleton className="h-6 w-16" /></TableCell>
-          <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
-        </TableRow>
-      ))}
-    </>
+    <TableRow>
+      <TableCell colSpan={8} className="py-24 text-center">
+        <motion.div
+           initial={{ opacity: 0, scale: 0.8 }}
+           animate={{ opacity: 1, scale: 1 }}
+           transition={{ duration: 0.3 }}
+           className="flex flex-col items-center justify-center space-y-4"
+        >
+           <div className="relative">
+             <div className="absolute inset-0 rounded-full blur-xl bg-primary/20 animate-pulse"></div>
+             <Loader2 className="h-10 w-10 text-primary animate-spin relative z-10" />
+           </div>
+           <p className="text-sm text-muted-foreground font-medium animate-pulse">
+             Loading students...
+           </p>
+        </motion.div>
+      </TableCell>
+    </TableRow>
   );
 
   return (

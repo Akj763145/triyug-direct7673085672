@@ -9,7 +9,7 @@ import {
   Search, IndianRupee, FileText, ArrowUpDown, ArrowDown, ArrowUp, 
   Download, Bell, CheckSquare, Filter, FileSpreadsheet, Send
 } from "lucide-react";
-import { api } from "../lib/api";
+import { api, apiCache } from "../lib/api";
 import { Invoice } from "../types";
 import { Skeleton } from "../components/ui/skeleton";
 import { motion, AnimatePresence } from "motion/react";
@@ -19,8 +19,10 @@ import { format, parseISO, isSameMonth, subMonths, startOfMonth, endOfMonth, isW
 
 export function Fees() {
   const [search, setSearch] = useState("");
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [invoices, setInvoices] = useState<Invoice[]>(() => {
+    return (apiCache.get('invoices')?.data || []) as Invoice[];
+  });
+  const [loading, setLoading] = useState(() => !apiCache.has('students'));
 
   // Sorting & Filtering State
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'dueDate', direction: 'asc' });

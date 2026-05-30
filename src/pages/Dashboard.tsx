@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../co
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Calendar, Users, UserCog, IndianRupee, Layers, QrCode, CheckCircle2, X, ChevronLeft, ChevronRight, Search, PartyPopper, Activity } from "lucide-react";
-import { api } from "../lib/api";
+import { api, apiCache } from "../lib/api";
 import { ActivityLog } from "../types";
 import { 
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger 
@@ -61,7 +61,7 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
     pendingEnquiries: 0,
     pendingInvoices: 0
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !apiCache.has('students'));
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
   const [needsAuth, setNeedsAuth] = useState<boolean>(true);
@@ -239,7 +239,7 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
 
   const loadDashboardData = async (dateStr: string) => {
     if (!supabase) return;
-    setLoading(true);
+    if (!apiCache.has('students')) setLoading(true);
     setAttendanceLoading(true);
     setStaffAttendanceLoading(true);
 

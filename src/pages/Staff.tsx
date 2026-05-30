@@ -6,10 +6,10 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { Search, UserPlus, QrCode, PlusCircle, CheckCircle, ShieldAlert, X, User, Trash2 } from "lucide-react";
+import { Search, UserPlus, QrCode, PlusCircle, CheckCircle, ShieldAlert, X, User, Trash2, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "../components/ui/dialog";
 import { supabase } from "../lib/supabase";
-import { api } from "../lib/api";
+import { api, apiCache } from "../lib/api";
 import { QRCodeSVG } from "qrcode.react";
 import { Skeleton } from "../components/ui/skeleton";
 import { motion, AnimatePresence } from "motion/react";
@@ -145,7 +145,9 @@ export function Staff() {
 
     setDesignations(ds);
     setStaffList(ss);
-    setLoading(false);
+    
+    // Ensure loader appears long enough to be visible
+    setTimeout(() => setLoading(false), 600);
   };
 
   const handleCreateDesignation = async () => {
@@ -757,18 +759,24 @@ export function Staff() {
             <TableBody>
               <AnimatePresence mode="popLayout" initial={false}>
                 {loading ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <TableRow key={i}>
-                      <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-                      <TableCell>
-                        <Skeleton className="h-4 w-32 mb-1" />
-                        <Skeleton className="h-3 w-48" />
-                      </TableCell>
-                      <TableCell><div className="flex gap-1"><Skeleton className="h-5 w-20" /><Skeleton className="h-5 w-16" /></div></TableCell>
-                      <TableCell><Skeleton className="h-5 w-16" /></TableCell>
-                      <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto rounded-md" /></TableCell>
-                    </TableRow>
-                  ))
+                  <TableRow>
+                    <TableCell colSpan={5} className="py-24 text-center">
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.3 }}
+                        className="flex flex-col items-center justify-center space-y-4"
+                      >
+                        <div className="relative">
+                          <div className="absolute inset-0 rounded-full blur-xl bg-primary/20 animate-pulse"></div>
+                          <Loader2 className="h-10 w-10 text-primary animate-spin relative z-10" />
+                        </div>
+                        <p className="text-sm text-muted-foreground font-medium animate-pulse">
+                          Loading personnel records...
+                        </p>
+                      </motion.div>
+                    </TableCell>
+                  </TableRow>
                 ) : sortedStaff.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center py-12">
