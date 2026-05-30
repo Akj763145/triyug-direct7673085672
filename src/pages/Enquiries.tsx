@@ -54,6 +54,29 @@ export function Enquiries() {
     setCurrentPage(1);
   }, [searchTerm, statusFilter]);
 
+  // Keyboard shortcut listener for Ctrl + N / Cmd + N
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+        const activeElem = document.activeElement;
+        // Don't trigger if user is active inside form fields
+        if (activeElem && (
+          activeElem.tagName === "INPUT" ||
+          activeElem.tagName === "TEXTAREA" ||
+          activeElem.tagName === "SELECT" ||
+          activeElem.getAttribute("contenteditable") === "true"
+        )) {
+          return;
+        }
+        e.preventDefault();
+        setIsAdding(prev => !prev);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   const fetchEnquiries = async () => {
     const data = await api.getEnquiries();
     if (data) {
@@ -177,9 +200,18 @@ export function Enquiries() {
         </div>
         <Button 
           onClick={() => setIsAdding(!isAdding)}
-          className="bg-primary hover:bg-primary/90 text-white rounded-full font-bold shadow-md px-6 cursor-pointer"
+          className="bg-primary hover:bg-primary/90 text-white rounded-full font-bold shadow-md px-6 cursor-pointer flex items-center gap-2.5 transition-all group/btn"
         >
-          {isAdding ? "Cancel" : <><Plus className="w-4 h-4 mr-2" /> New Enquiry</>}
+          {isAdding ? (
+            <span>Cancel</span>
+          ) : (
+            <span className="flex items-center gap-2">
+              <Plus className="w-4 h-4" /> New Enquiry
+            </span>
+          )}
+          <kbd className="hidden sm:inline-flex items-center h-5 px-1.5 font-mono text-[9px] font-black bg-white/20 text-white rounded border border-white/10 uppercase tracking-wider select-none shrink-0">
+            Ctrl + N
+          </kbd>
         </Button>
       </div>
 
