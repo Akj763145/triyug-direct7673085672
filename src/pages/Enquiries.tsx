@@ -167,7 +167,8 @@ export function Enquiries() {
       enq.contact.includes(searchTerm) || 
       (enq.whatsapp && enq.whatsapp.includes(searchTerm)) ||
       (enq.address && enq.address.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (enq.current_class && enq.current_class.toLowerCase().includes(searchTerm.toLowerCase()));
+      (enq.current_class && enq.current_class.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (enq.notes && enq.notes.toLowerCase().includes(searchTerm.toLowerCase()));
     
     const matchesStatus = statusFilter === "All" || enq.status === statusFilter;
     return matchesSearch && matchesStatus;
