@@ -35,6 +35,9 @@ export function Enquiries() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [viewingEnquiry, setViewingEnquiry] = useState<Enquiry | null>(null);
   const [editingEnquiry, setEditingEnquiry] = useState<Enquiry | null>(null);
+  const [showDuplicatesModal, setShowDuplicatesModal] = useState(false);
+  const [keepIds, setKeepIds] = useState<Record<string, string>>({});
+  const [resolvingBulk, setResolvingBulk] = useState(false);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -362,6 +365,70 @@ export function Enquiries() {
     }
   };
 
+  const handleResolveGroup = async (groupIdx: number, group: Enquiry[]) => {
+    const keepId = keepIds[groupIdx];
+    if (!keepId) return;
+
+    const toDelete = group.filter(enq => enq.id !== keepId).map(enq => enq.id);
+    if (toDelete.length === 0) return;
+
+    setLoading(true);
+    try {
+      const results = await Promise.all(toDelete.map(id => api.deleteEnquiry(id)));
+      const cleanSucceeded = results.every(res => res.success);
+      if (!cleanSucceeded) {
+        setSyncWarning("Some records were deleted locally but could not sync to remote. Check Supabase connection.");
+      }
+      setEnquiries(prev => prev.filter(enq => !toDelete.includes(enq.id)));
+      setSuccessMsg(`Successfully resolved this duplicate group! Deleted ${toDelete.length} copies.`);
+      setTimeout(() => setSuccessMsg(null), 4000);
+    } catch (err) {
+      console.error("Error resolving duplicate group:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResolveAll = async () => {
+    if (duplicateGroups.length === 0) return;
+    if (!confirm(`Are you sure you want to resolve all ${duplicateGroups.length} duplicate groups? This will bulk delete all redundant duplicate records.`)) {
+      return;
+    }
+
+    setResolvingBulk(true);
+    const allDeleteIds: string[] = [];
+
+    duplicateGroups.forEach((group, idx) => {
+      const keepId = keepIds[idx] || group[0].id;
+      group.forEach(enq => {
+        if (enq.id !== keepId) {
+          allDeleteIds.push(enq.id);
+        }
+      });
+    });
+
+    if (allDeleteIds.length === 0) {
+      setResolvingBulk(false);
+      return;
+    }
+
+    try {
+      const results = await Promise.all(allDeleteIds.map(id => api.deleteEnquiry(id)));
+      const hasFailure = results.some(res => !res.success);
+      if (hasFailure) {
+        setSyncWarning("Some duplicates were not updated in remote database successfully.");
+      }
+      setEnquiries(prev => prev.filter(enq => !allDeleteIds.includes(enq.id)));
+      setSuccessMsg(`Successfully resolved all duplicate groups. Bulk deleted ${allDeleteIds.length} enquiries!`);
+      setShowDuplicatesModal(false);
+      setTimeout(() => setSuccessMsg(null), 4000);
+    } catch (err) {
+      console.error("Bulk resolve error:", err);
+    } finally {
+      setResolvingBulk(false);
+    }
+  };
+
   const handleUpdate = async () => {
     if (!editingEnquiry || !editingEnquiry.name || !editingEnquiry.contact) return;
 
@@ -433,6 +500,47 @@ export function Enquiries() {
     return sorted;
   }, [filteredEnquiries, sortField, sortOrder]);
 
+  const duplicateGroups = React.useMemo(() => {
+    const groups: { [key: string]: Enquiry[] } = {};
+    const cleanPhone = (num: string) => num ? num.replace(/\D/g, "") : "";
+
+    enquiries.forEach(enq => {
+      const phone = cleanPhone(enq.contact);
+      const nameKey = enq.name.toLowerCase().trim();
+      
+      let key = "";
+      if (phone && phone.length >= 7) {
+        // use last 10 characters to normalize various country code patterns
+        const last10 = phone.slice(-10);
+        key = `phone-${last10}`;
+      } else {
+        key = `name-${nameKey}`;
+      }
+      
+      if (!groups[key]) {
+        groups[key] = [];
+      }
+      groups[key].push(enq);
+    });
+
+    return Object.values(groups).filter(g => g.length > 1);
+  }, [enquiries]);
+
+  // Track which record ID to keep for each duplicate group
+  useEffect(() => {
+    if (showDuplicatesModal) {
+      const initialKeepIds: Record<string, string> = {};
+      duplicateGroups.forEach((group, idx) => {
+        // Sort group by created_at ascending (oldest first)
+        const sortedGroup = [...group].sort((a, b) => 
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+        initialKeepIds[idx] = sortedGroup[0].id;
+      });
+      setKeepIds(initialKeepIds);
+    }
+  }, [duplicateGroups, showDuplicatesModal]);
+
   const totalResults = filteredEnquiries.length;
   const totalPages = Math.ceil(totalResults / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
@@ -473,6 +581,18 @@ export function Enquiries() {
           </Button>
           <Button variant="outline" onClick={handleExportCSV} className="rounded-full shadow-sm text-sm">
             <Download className="mr-2 h-4 w-4" /> Export CSV
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={() => setShowDuplicatesModal(true)} 
+            className={`rounded-full shadow-sm text-sm font-bold transition-all ${
+              duplicateGroups.length > 0 
+                ? "bg-red-50/80 hover:bg-red-100/90 text-red-600 border-red-200 hover:border-red-300 shadow-sm" 
+                : "text-slate-600 border-slate-200 hover:text-slate-900"
+            }`}
+          >
+            <Trash2 className={`mr-2 h-4 w-4 ${duplicateGroups.length > 0 ? "text-red-500 animate-pulse font-black" : "text-slate-400"}`} /> 
+            {duplicateGroups.length > 0 ? `Duplicates (${duplicateGroups.length})` : "Duplicates"}
           </Button>
           <Button 
             onClick={() => setIsAdding(!isAdding)}
@@ -1069,6 +1189,146 @@ export function Enquiries() {
                     Save Changes
                   </Button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showDuplicatesModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl overflow-hidden border border-slate-100 animate-in fade-in zoom-in duration-200"
+            >
+              <div className="h-20 bg-slate-50 flex items-center justify-between px-8 border-b border-slate-100">
+                <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                  <Trash2 className="w-5 h-5 text-red-500" /> Duplicate Finder & Bulk-Delete
+                </h2>
+                <button 
+                  onClick={() => setShowDuplicatesModal(false)}
+                  className="p-2 rounded-full hover:bg-slate-200 transition-colors cursor-pointer"
+                >
+                  <Plus className="w-5 h-5 rotate-45 text-slate-500" />
+                </button>
+              </div>
+
+              <div className="px-8 py-6 space-y-4 max-h-[65vh] overflow-y-auto">
+                <p className="text-sm text-slate-500">
+                  We automatically analyze student database profiles to detect duplicate records containing identical names or phone numbers. Select which record to keep for each group and click resolve to bulk-delete redundant entries.
+                </p>
+
+                {duplicateGroups.length === 0 ? (
+                  <div className="py-12 text-center space-y-3">
+                    <div className="text-4xl">🎉</div>
+                    <h3 className="font-bold text-slate-800">Clear Records</h3>
+                    <p className="text-sm text-slate-500 max-w-md mx-auto">
+                      Excellent! No duplicate student enquiries were found with matching names or contact details.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="flex justify-between items-center bg-red-50/50 p-4 rounded-2xl border border-red-100">
+                      <div>
+                        <p className="text-sm font-bold text-red-800">{duplicateGroups.length} Duplicate Groups Found</p>
+                        <p className="text-xs text-red-600">Select the primary record you want to keep in each group.</p>
+                      </div>
+                      <Button
+                        onClick={handleResolveAll}
+                        disabled={resolvingBulk}
+                        className="bg-red-600 hover:bg-red-700 text-white rounded-full font-bold text-xs h-9 cursor-pointer shadow-md"
+                      >
+                        {resolvingBulk ? "Resolving Duplicates..." : "Resolve All & Bulk Delete"}
+                      </Button>
+                    </div>
+
+                    <div className="space-y-4">
+                      {duplicateGroups.map((group, groupIdx) => {
+                        const sampleEnq = group[0];
+                        const count = group.length;
+                        
+                        // Detect duplication reason
+                        const cleanPhone = (num: string) => num ? num.replace(/\D/g, "") : "";
+                        const sharesPhone = group.every((e, _, arr) => cleanPhone(e.contact) && cleanPhone(e.contact) === cleanPhone(arr[0].contact));
+                        const groupTypeLabel = sharesPhone 
+                          ? `Identical Number: ${sampleEnq.contact}`
+                          : `Identical Name: ${sampleEnq.name}`;
+
+                        return (
+                          <div key={groupIdx} className="border border-slate-100 rounded-2xl bg-slate-50/30 overflow-hidden shadow-sm">
+                            <div className="bg-slate-100/50 px-5 py-3 border-b border-slate-100 flex justify-between items-center">
+                              <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                                <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-500" />
+                                {groupTypeLabel} ({count} copies)
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleResolveGroup(groupIdx, group)}
+                                className="text-xs rounded-full border-red-200 hover:bg-red-50 text-red-600 hover:text-red-700 h-7"
+                              >
+                                Clean Group
+                              </Button>
+                            </div>
+                            <div className="divide-y divide-slate-100/60 bg-white">
+                              {group.map((enq) => {
+                                const isSelectedToKeep = keepIds[groupIdx] === enq.id;
+                                return (
+                                  <label 
+                                    key={enq.id}
+                                    onClick={() => setKeepIds(prev => ({ ...prev, [groupIdx]: enq.id }))}
+                                    className={`px-5 py-3.5 flex items-start gap-4 hover:bg-slate-50/55 transition-all text-left cursor-pointer ${
+                                      isSelectedToKeep ? "bg-emerald-50/10" : ""
+                                    }`}
+                                  >
+                                    <input 
+                                      type="radio"
+                                      name={`dup-keep-${groupIdx}`}
+                                      checked={isSelectedToKeep}
+                                      onChange={() => {}}
+                                      className="mt-1 accent-emerald-600 cursor-pointer h-4 w-4"
+                                    />
+                                    <div className="flex-1 min-w-0 space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <p className="text-sm font-semibold text-slate-800">{enq.name}</p>
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${getStatusColor(enq.status)}`}>
+                                          {enq.status}
+                                        </span>
+                                        {isSelectedToKeep && (
+                                          <span className="text-[10px] bg-emerald-50 text-emerald-700 font-extrabold px-2 py-0.5 rounded border border-emerald-100">
+                                            KEEP PRIMARY
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex flex-wrap text-xs text-slate-400 gap-x-4">
+                                        <span>Phone: {enq.contact}</span>
+                                        {enq.current_class && <span>Class: {enq.current_class}</span>}
+                                        <span>Added: {new Date(enq.created_at).toLocaleDateString()}</span>
+                                      </div>
+                                      {enq.notes && (
+                                        <p className="text-xs text-slate-500 italic truncate max-w-md">"{enq.notes}"</p>
+                                      )}
+                                    </div>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="h-20 bg-slate-50 border-t border-slate-100 px-8 flex items-center justify-end">
+                <Button 
+                  onClick={() => setShowDuplicatesModal(false)}
+                  className="bg-slate-900 hover:bg-slate-800 text-white rounded-full font-bold px-6 h-11 cursor-pointer"
+                >
+                  Close Manager
+                </Button>
               </div>
             </motion.div>
           </div>
