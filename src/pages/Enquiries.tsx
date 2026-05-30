@@ -38,6 +38,8 @@ export function Enquiries() {
   const [showDuplicatesModal, setShowDuplicatesModal] = useState(false);
   const [keepIds, setKeepIds] = useState<Record<string, string>>({});
   const [resolvingBulk, setResolvingBulk] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -429,6 +431,81 @@ export function Enquiries() {
     }
   };
 
+  const handleBulkStatusChange = async (newStatus: EnquiryStatus) => {
+    if (selectedIds.length === 0) return;
+    setBulkUpdating(true);
+    
+    // Store previous enquiries for rollback
+    const previousEnquiries = [...enquiries];
+    
+    // Optimistically update locally
+    setEnquiries(prev => prev.map(e => selectedIds.includes(e.id) ? { ...e, status: newStatus } : e));
+    
+    try {
+      const results = await Promise.all(
+        selectedIds.map(id => api.updateEnquiry(id, { status: newStatus }))
+      );
+      
+      const success = results.every(r => r && r.success);
+      const isDbSynced = results.every(r => (r as any).dbSynced !== false);
+      
+      if (success) {
+        if (!isDbSynced) {
+          setSyncWarning("We saved the changes locally, but could not connect to sync with your remote database.");
+        } else {
+          setSyncWarning(null);
+        }
+        setSuccessMsg(`Successfully updated ${selectedIds.length} enquiries to "${newStatus}"!`);
+        setTimeout(() => setSuccessMsg(null), 4000);
+        setSelectedIds([]);
+      } else {
+        setEnquiries(previousEnquiries);
+        setSyncWarning("Some entries failed to update on the server.");
+      }
+    } catch (err) {
+      console.error("Bulk status change error:", err);
+      setEnquiries(previousEnquiries);
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    setBulkUpdating(true);
+    
+    const previousEnquiries = [...enquiries];
+    setEnquiries(prev => prev.filter(e => !selectedIds.includes(e.id)));
+    
+    try {
+      const results = await Promise.all(
+        selectedIds.map(id => api.deleteEnquiry(id))
+      );
+      
+      const success = results.every(r => r && r.success);
+      const isDbSynced = results.every(r => (r as any).dbSynced !== false);
+      
+      if (success) {
+        if (!isDbSynced) {
+          setSyncWarning("We saved the changes locally, but could not connect to sync with your remote database.");
+        } else {
+          setSyncWarning(null);
+        }
+        setSuccessMsg(`Successfully deleted ${selectedIds.length} enquiries!`);
+        setTimeout(() => setSuccessMsg(null), 4000);
+        setSelectedIds([]);
+      } else {
+        setEnquiries(previousEnquiries);
+        setSyncWarning("Some entries failed to delete on the server.");
+      }
+    } catch (err) {
+      console.error("Bulk delete error:", err);
+      setEnquiries(previousEnquiries);
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
   const handleUpdate = async () => {
     if (!editingEnquiry || !editingEnquiry.name || !editingEnquiry.contact) return;
 
@@ -804,6 +881,22 @@ export function Enquiries() {
             <table className="w-full text-left border-collapse">
               <thead className="bg-slate-50/50 text-[10px] uppercase font-black text-slate-400 tracking-widest border-b border-slate-100">
                 <tr>
+                  <th className="px-6 py-4 w-12 text-center">
+                    <input 
+                      type="checkbox"
+                      checked={paginatedEnquiries.length > 0 && paginatedEnquiries.every(e => selectedIds.includes(e.id))}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          const pageIds = paginatedEnquiries.map(enq => enq.id);
+                          setSelectedIds(prev => Array.from(new Set([...prev, ...pageIds])));
+                        } else {
+                          const pageIds = paginatedEnquiries.map(enq => enq.id);
+                          setSelectedIds(prev => prev.filter(id => !pageIds.includes(id)));
+                        }
+                      }}
+                      className="rounded border-slate-300 text-primary focus:ring-primary w-4 h-4 cursor-pointer accent-primary"
+                    />
+                  </th>
                   <th className="px-6 py-4">{renderSortHeader('name', 'Student Info')}</th>
                   <th className="px-6 py-4">Contact & WhatsApp</th>
                   <th className="px-6 py-4">{renderSortHeader('current_class', 'Current Class')}</th>
@@ -816,7 +909,7 @@ export function Enquiries() {
               <tbody className="divide-y divide-slate-50">
                 {initialLoading ? (
                   <tr>
-                    <td colSpan={7} className="py-24 text-center">
+                    <td colSpan={8} className="py-24 text-center">
                       <motion.div
                         initial={{ opacity: 0, scale: 0.8 }}
                         animate={{ opacity: 1, scale: 1 }}
@@ -835,13 +928,27 @@ export function Enquiries() {
                   </tr>
                 ) : paginatedEnquiries.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-slate-500 text-sm">
+                    <td colSpan={8} className="py-12 text-center text-slate-500 text-sm">
                       No enquiries found matching your criteria.
                     </td>
                   </tr>
                 ) : (
                   paginatedEnquiries.map((enq) => (
-                    <tr key={enq.id} className="hover:bg-slate-50/50 transition-colors group">
+                    <tr key={enq.id} className={`hover:bg-slate-50/50 transition-colors group ${selectedIds.includes(enq.id) ? "bg-slate-50/80" : ""}`}>
+                      <td className="px-6 py-4 w-12 text-center">
+                        <input 
+                          type="checkbox"
+                          checked={selectedIds.includes(enq.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedIds(prev => [...prev, enq.id]);
+                            } else {
+                              setSelectedIds(prev => prev.filter(id => id !== enq.id));
+                            }
+                          }}
+                          className="rounded border-slate-300 text-primary focus:ring-primary w-4 h-4 cursor-pointer accent-primary"
+                        />
+                      </td>
                       <td className="px-6 py-4">
                         <div 
                           className="flex items-center gap-3 cursor-pointer group/name"
@@ -1332,6 +1439,88 @@ export function Enquiries() {
               </div>
             </motion.div>
           </div>
+        )}
+
+        {selectedIds.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, x: "-50%" }}
+            animate={{ opacity: 1, y: 0, x: "-50%" }}
+            exit={{ opacity: 0, y: 50, x: "-50%" }}
+            className="fixed bottom-6 left-1/2 z-40 bg-slate-900 border border-slate-800 text-white px-6 py-4 rounded-3xl sm:rounded-full shadow-2xl flex flex-col sm:flex-row items-center gap-4 sm:gap-6 backdrop-blur-md max-w-[95vw] sm:max-w-none"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-black text-slate-300 tracking-wider uppercase whitespace-nowrap">
+                <span className="text-emerald-400 font-extrabold text-sm bg-white/10 px-2.5 py-1 rounded-full mr-1.5">{selectedIds.length}</span> Selected
+              </span>
+              <div className="hidden sm:block h-4 w-[1px] bg-white/20" />
+            </div>
+            
+            <div className="flex items-center gap-1.5 flex-wrap justify-center">
+              <span className="text-[10px] uppercase font-black tracking-widest text-slate-400 mr-1 sm:mr-2">Mark:</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={bulkUpdating}
+                onClick={() => handleBulkStatusChange("New")}
+                className="text-xs hover:bg-white/10 text-white rounded-full h-8 px-2.5 font-bold hover:text-blue-400 transition-colors cursor-pointer"
+              >
+                ● New
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={bulkUpdating}
+                onClick={() => handleBulkStatusChange("Follow-up")}
+                className="text-xs hover:bg-white/10 text-white rounded-full h-8 px-2.5 font-bold hover:text-orange-400 transition-colors cursor-pointer"
+              >
+                ● Follow-up
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={bulkUpdating}
+                onClick={() => handleBulkStatusChange("Converted")}
+                className="text-xs hover:bg-white/10 text-white rounded-full h-8 px-2.5 font-bold hover:text-emerald-400 transition-colors cursor-pointer"
+              >
+                ● Converted
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={bulkUpdating}
+                onClick={() => handleBulkStatusChange("Dropped")}
+                className="text-xs hover:bg-white/10 text-white rounded-full h-8 px-2.5 font-bold hover:text-red-400 transition-colors cursor-pointer"
+              >
+                ● Dropped
+              </Button>
+            </div>
+
+            <div className="hidden sm:block h-4 w-[1px] bg-white/20" />
+            
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={bulkUpdating}
+                onClick={() => {
+                  if (confirm(`Are you sure you want to bulk-delete these ${selectedIds.length} selected enquiries?`)) {
+                    handleBulkDelete();
+                  }
+                }}
+                className="text-xs hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-full h-8 px-3 font-semibold transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Delete
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelectedIds([])}
+                className="text-xs hover:bg-white/10 text-slate-300 rounded-full h-8 px-3 transition-colors cursor-pointer"
+              >
+                Deselect
+              </Button>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
