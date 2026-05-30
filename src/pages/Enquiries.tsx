@@ -54,10 +54,10 @@ export function Enquiries() {
     setCurrentPage(1);
   }, [searchTerm, statusFilter]);
 
-  // Keyboard shortcut listener for Ctrl + N / Cmd + N
+  // Keyboard shortcut listener for Alt + N
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+      if (e.altKey && e.key.toLowerCase() === 'n') {
         const activeElem = document.activeElement;
         // Don't trigger if user is active inside form fields
         if (activeElem && (
@@ -210,7 +210,7 @@ export function Enquiries() {
             </span>
           )}
           <kbd className="hidden sm:inline-flex items-center h-5 px-1.5 font-mono text-[9px] font-black bg-white/20 text-white rounded border border-white/10 uppercase tracking-wider select-none shrink-0">
-            Ctrl + N
+            Alt + N
           </kbd>
         </Button>
       </div>
