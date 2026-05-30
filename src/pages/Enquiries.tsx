@@ -142,6 +142,7 @@ export function Enquiries() {
           }
 
           let successCount = 0;
+          let updatedCount = 0;
           let failCount = 0;
 
           // Align parsed keys with potential column synonymous headers
@@ -187,16 +188,36 @@ export function Enquiries() {
             return;
           }
 
+          const cleanPhone = (num: string) => num.replace(/\D/g, "");
+
           for (const item of enquiriesToInsert) {
             try {
-              const res = await api.addEnquiry({
-                ...item,
-                created_at: new Date().toISOString()
+              const cleanItemContact = cleanPhone(item.contact);
+              const existing = enquiries.find(e => {
+                const cleanEContact = cleanPhone(e.contact);
+                return (cleanItemContact && cleanEContact && cleanItemContact === cleanEContact) || 
+                       (e.name.toLowerCase().trim() === item.name.toLowerCase().trim() && e.contact.trim() === item.contact.trim());
               });
-              if (res && res.success) {
-                successCount++;
+
+              if (existing) {
+                // Update existing record with the new details
+                const res = await api.updateEnquiry(existing.id, item);
+                if (res && res.success) {
+                  updatedCount++;
+                } else {
+                  failCount++;
+                }
               } else {
-                failCount++;
+                // Create a brand new record
+                const res = await api.addEnquiry({
+                  ...item,
+                  created_at: new Date().toISOString()
+                });
+                if (res && res.success) {
+                  successCount++;
+                } else {
+                  failCount++;
+                }
               }
             } catch (err) {
               console.error("Bulk upload import single row exception:", err);
@@ -204,7 +225,7 @@ export function Enquiries() {
             }
           }
 
-          setSuccessMsg(`Bulk Import Completed! Successfully imported ${successCount} enquiries.`);
+          setSuccessMsg(`Bulk Import Completed! Added ${successCount} new and updated ${updatedCount} existing enquiries.`);
           setTimeout(() => {
             setSuccessMsg(null);
           }, 6000);
