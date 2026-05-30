@@ -28,6 +28,7 @@ export function Enquiries() {
   const [isAdding, setIsAdding] = useState(false);
   const [loading, setLoading] = useState(false);
   const [syncWarning, setSyncWarning] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [viewingEnquiry, setViewingEnquiry] = useState<Enquiry | null>(null);
   
   // Pagination state
@@ -63,6 +64,7 @@ export function Enquiries() {
   const handleAdd = async () => {
     if (!newEnquiry.name || !newEnquiry.contact) return;
     setLoading(true);
+    setSuccessMsg(null);
     const result = await api.addEnquiry({
       ...newEnquiry
     });
@@ -72,8 +74,12 @@ export function Enquiries() {
       } else {
         setSyncWarning(null);
       }
+      setSuccessMsg(`Enquiry for "${newEnquiry.name}" saved successfully!`);
+      setTimeout(() => {
+        setSuccessMsg(null);
+      }, 4000);
       await fetchEnquiries();
-      setIsAdding(false);
+      // Keep the form open as requested
       setNewEnquiry({
         name: "",
         contact: "",
@@ -264,11 +270,22 @@ export function Enquiries() {
                     />
                   </div>
                 </div>
-                <div className="flex justify-end mt-4">
+                <div className="flex justify-between items-center mt-4 gap-4">
+                  <div className="flex-1">
+                    {successMsg && (
+                      <motion.span 
+                        initial={{ opacity: 0, y: 5 }} 
+                        animate={{ opacity: 1, y: 0 }} 
+                        className="text-xs font-bold text-[#1CA751] bg-emerald-50/80 px-3 py-1.5 rounded-full border border-emerald-100 inline-block"
+                      >
+                        ✓ {successMsg}
+                      </motion.span>
+                    )}
+                  </div>
                   <Button 
                     onClick={handleAdd} 
                     disabled={loading || !newEnquiry.name || !newEnquiry.contact}
-                    className="bg-[#1CA751] hover:bg-[#1CA751]/90 rounded-full font-bold cursor-pointer"
+                    className="bg-[#1CA751] hover:bg-[#1CA751]/90 rounded-full font-bold cursor-pointer shrink-0"
                   >
                     {loading ? "Saving..." : "Save Enquiry"}
                   </Button>
