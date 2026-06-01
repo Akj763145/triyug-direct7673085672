@@ -437,30 +437,7 @@ export default function Batches() {
       }
     }
 
-    if (field === 'minInstallments') {
-      const minVal = parseInt(value);
-      if (!value || isNaN(minVal) || minVal < 1) {
-        tempErrors.minInstallments = 'Min installments must represent at least 1 cycle.';
-      } else {
-        delete tempErrors.minInstallments;
-      }
-    }
 
-    if (field === 'maxInstallments') {
-      const maxVal = parseInt(value);
-      const minVal = parseInt(formData.minInstallments);
-      if (!value || isNaN(maxVal) || maxVal < 1) {
-        tempErrors.maxInstallments = 'Max installments must represent at least 1 cycle.';
-      } else if (maxVal < minVal) {
-        tempErrors.maxInstallments = 'Max installments cannot fall below minimum bounds.';
-      } else {
-        delete tempErrors.maxInstallments;
-        // Clean up minInstallments error if maxInstallments is now valid in relation
-        if (minVal >= 1) {
-          delete tempErrors.minInstallments;
-        }
-      }
-    }
 
     if (field === 'durationMonths') {
       const durVal = parseInt(value);
@@ -494,19 +471,6 @@ export default function Batches() {
     const amt = Number(formData.totalBatchAmount);
     if (formData.totalBatchAmount && (isNaN(amt) || amt < 0)) {
       errors.totalBatchAmount = 'Fee anchor must represent a non-negative currency field.';
-    }
-    
-    const min = parseInt(formData.minInstallments);
-    const max = parseInt(formData.maxInstallments);
-    
-    if (isNaN(min) || min < 1) {
-      errors.minInstallments = 'Min installments must represent at least 1 cycle.';
-    }
-    
-    if (isNaN(max) || max < 1) {
-      errors.maxInstallments = 'Max installments must represent at least 1 cycle.';
-    } else if (max < min) {
-      errors.maxInstallments = 'Max installments cannot fall below minimum bounds.';
     }
     
     const dur = parseInt(formData.durationMonths);
@@ -565,8 +529,8 @@ export default function Batches() {
           name: formData.name,
           description: formData.description,
           totalBatchAmount: Number(formData.totalBatchAmount),
-          minInstallments: parseInt(formData.minInstallments),
-          maxInstallments: parseInt(formData.maxInstallments),
+          minInstallments: 1,
+          maxInstallments: 1,
           durationMonths: parseInt(formData.durationMonths),
           facultyAssign: formData.facultyAssign,
           thumbnail: formData.thumbnail,
@@ -885,12 +849,6 @@ export default function Batches() {
           <TabsTrigger value="builder" className="font-black text-xs uppercase tracking-widest h-11 border-b-2 border-transparent data-[state=active]:border-emerald-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none rounded-none px-4 text-emerald-600 data-[state=active]:text-emerald-500">
             <Sparkles className="h-3 w-3 mr-1.5" /> Advanced Batch Builder
           </TabsTrigger>
-          <TabsTrigger value="installments" className="font-black text-xs uppercase tracking-widest h-11 border-b-2 border-transparent data-[state=active]:border-indigo-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none rounded-none px-4 text-indigo-600 data-[state=active]:text-indigo-500">
-            <Percent className="h-3 w-3 mr-1.5" /> EMI Policies
-          </TabsTrigger>
-          <TabsTrigger value="simulator" className="font-black text-xs uppercase tracking-widest h-11 border-b-2 border-transparent data-[state=active]:border-emerald-500 data-[state=active]:bg-transparent data-[state=active]:shadow-none rounded-none px-4 text-emerald-600 data-[state=active]:text-emerald-500">
-            <Calculator className="h-3 w-3 mr-1.5" /> Simulation Engine
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="grades" className="mt-0 focus-visible:outline-none focus:outline-none">
@@ -1172,50 +1130,7 @@ export default function Batches() {
                         />
                          {formErrors.durationMonths && <p className="text-[10px] font-bold text-red-500 mt-1">{formErrors.durationMonths}</p>}
                     </div>
-                    <div className="space-y-2">
-                       <label className="text-xs font-bold text-foreground">Min Installments</label>
-                        <Input type="number" min="1" value={formData.minInstallments} onChange={(e) => handleInputChange('minInstallments', e.target.value)} className="h-11 bg-background" />
-                    </div>
-                    <div className="space-y-2">
-                       <label className="text-xs font-bold text-foreground">Max Installments</label>
-                        <Input type="number" min="1" value={formData.maxInstallments} onChange={(e) => handleInputChange('maxInstallments', e.target.value)} className="h-11 bg-background" />
-                    </div>
-                    <div className="space-y-2">
-                       <label className="text-xs font-bold text-foreground">Installment Due Gap</label>
-                       <select
-                         value={['0', '15', '30', '45', '60', '90'].includes(formData.dueDateGapDays) ? formData.dueDateGapDays : 'custom'}
-                         onChange={(e) => {
-                           const val = e.target.value;
-                           if (val === 'custom') {
-                             handleInputChange('dueDateGapDays', '25'); // default custom placeholder
-                           } else {
-                             handleInputChange('dueDateGapDays', val);
-                           }
-                         }}
-                         className="w-full h-11 px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm font-medium"
-                       >
-                         <option value="0">Auto (Uniform Gaps)</option>
-                         <option value="15">Every 15 Days</option>
-                         <option value="30">Every 30 Days (Monthly)</option>
-                         <option value="45">Every 45 Days</option>
-                         <option value="60">Every 60 Days</option>
-                         <option value="90">Every 90 Days</option>
-                         <option value="custom">Custom Days Interval...</option>
-                       </select>
-                       {!['0', '15', '30', '45', '60', '90'].includes(formData.dueDateGapDays) && (
-                         <div className="mt-2 flex items-center gap-2">
-                           <Input
-                             type="number"
-                             min="1"
-                             placeholder="Days gap"
-                             value={formData.dueDateGapDays}
-                             onChange={(e) => handleInputChange('dueDateGapDays', e.target.value)}
-                             className="h-9 bg-background text-sm"
-                           />
-                           <span className="text-[10px] font-bold text-muted-foreground shrink-0">days</span>
-                         </div>
-                       )}
-                    </div>
+
                   </div>
                 </div>
 
@@ -1397,7 +1312,6 @@ export default function Batches() {
                     <tr className="bg-muted/50 border-b border-muted/20 font-black text-[10px] uppercase tracking-widest text-muted-foreground h-11">
                       <th className="px-4 py-2">Batch Tracker</th>
                       <th className="px-4 py-2">Anchor Fee</th>
-                      <th className="px-4 py-2 text-center">Permitted Steps</th>
                       <th className="px-4 py-2 text-right">Operational Actions</th>
                     </tr>
                   </thead>
@@ -1491,13 +1405,6 @@ export default function Batches() {
                                 </Badge>
                               </div>
                             </td>
-                            <td className="px-4 py-2 text-center">
-                              <div className="font-bold flex items-center justify-center gap-1.5 bg-muted/40 py-1 px-2.5 rounded-lg w-fit mx-auto border border-border/40 font-mono text-foreground">
-                                <span>{batch.minInstallments}</span>
-                                <span className="text-muted-foreground">→</span>
-                                <span className="text-primary font-black text-[13px]">{batch.maxInstallments}</span>
-                              </div>
-                            </td>
                             <td className="px-4 py-2 text-right">
                               <div className="flex justify-end gap-1.5 flex-wrap">
                                 <Button 
@@ -1516,20 +1423,7 @@ export default function Batches() {
                                 >
                                   <Edit className="h-3 w-3" /> Edit
                                 </Button>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  onClick={() => {
-                                    setSelectedSimBatch(batch);
-                                    setSimChosenInst(batch.minInstallments || 1);
-                                    setSimStudentId('');
-                                    setSimStudentName('');
-                                    setActiveTab('simulator');
-                                  }}
-                                  className="h-8 text-[11px] font-bold text-primary border-primary/20 bg-primary/5 hover:bg-primary/15 px-2.5 gap-1 shadow-sm"
-                                >
-                                  <UserPlus className="h-3 w-3" /> Enroll
-                                </Button>
+
                                 <Button 
                                   variant="ghost" 
                                   size="sm" 
@@ -2033,12 +1927,6 @@ export default function Batches() {
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-muted-foreground font-medium">Total Fee</span>
                         <span className="font-black font-mono text-base">₹{Number(viewingBatchDetail.totalBatchAmount).toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-muted-foreground font-medium">Installment Bounds</span>
-                        <span className="font-bold bg-muted/40 px-2 py-0.5 rounded font-mono border border-border/50">
-                           {viewingBatchDetail.minInstallments} - {viewingBatchDetail.maxInstallments}
-                        </span>
                       </div>
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-muted-foreground font-medium">Duration</span>

@@ -22,5 +22,12 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test-api-mock.ts",
+    "test-run-api.ts",
+    "test-api-setup.ts"
+  ]
 }

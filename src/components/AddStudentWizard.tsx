@@ -10,6 +10,9 @@ import { ChevronRight, ChevronLeft, Save, Upload, User, Users, GraduationCap, Fi
 import { motion, AnimatePresence } from "motion/react";
 import { useDropzone } from "react-dropzone";
 import { api } from "../lib/api";
+import { FeeEmiPreview } from "./FeeEmiPreview";
+import { AnnualEmiPolicyMaker } from "./AnnualEmiPolicyMaker";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "./ui/tabs";
 
 const wizardSchema = z.object({
   firstName: z.string().min(2, "Required"),
@@ -27,10 +30,25 @@ const wizardSchema = z.object({
 
   // Fee Structure
   downpaymentAmount: z.string().optional(),
-  feePerInstallmentAmount: z.string().min(1, "Amount is required"),
-  feeInstallmentGap: z.string().min(1, "Gap (in months) is required"),
+  feePerInstallmentAmount: z.string().min(1, "Course Fee is required"),
+  feeInstallmentGap: z.string().optional().default("1"),
   feeDuration: z.string().optional(),
   feeAsLongAsContinues: z.boolean().default(false),
+
+  divideRemaining: z.boolean().default(false).optional(),
+  targetEndMonth: z.string().optional(),
+  emiFrequency: z.string().optional().default("Monthly"),
+  customEmis: z.array(z.object({
+    id: z.string(),
+    date: z.string(),
+    amount: z.number(),
+    label: z.string()
+  })).optional(),
+  
+  annualEmiFrequency: z.string().optional().default("Monthly"),
+  annualEmiCustomTerms: z.string().optional(),
+  annualEmiCustomGap: z.string().optional(),
+  annualEmis: z.array(z.any()).optional(),
 
   parent1Name: z.string().min(2, "Required"),
   parent1Relation: z.string().min(2, "Required"),
@@ -174,12 +192,22 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
     if (currentStep === 1) {
       fieldsToValidate = ['firstName', 'lastName', 'dateOfBirth', 'enrollmentDate', 'gender', 'grade', 'batchId'];
     } else if (currentStep === 2) {
-      fieldsToValidate = ['feePerInstallmentAmount', 'feeInstallmentGap'];
+      fieldsToValidate = ['feePerInstallmentAmount'];
     } else if (currentStep === 3) {
       fieldsToValidate = ['parent1Name', 'parent1Relation', 'parent1Contact', 'parent1Whatsapp', 'parent1Occupation', 'addressLine1', 'city', 'state', 'zipCode'];
     }
 
     const isStepValid = await trigger(fieldsToValidate);
+    
+    if (currentStep === 2 && isStepValid) {
+       const isDivide = watch('divideRemaining');
+       const targetMonthVal = watch('targetEndMonth');
+       if (isDivide && !targetMonthVal) {
+          alert('Please select a Target End Date for dividing the remaining fee.');
+          return;
+       }
+    }
+
     if (isStepValid) {
       setCurrentStep(s => s + 1);
     }
@@ -252,6 +280,10 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
         emergency_contact_name: data.emergencyContactName,
         emergency_contact_relation: data.emergencyContactRelation,
         emergency_contact_number: data.emergencyContactNumber,
+        fee_per_installment: parseFloat(data.feePerInstallmentAmount),
+        fee_interval_months: parseInt(data.feeInstallmentGap, 10),
+        fee_duration_value: data.feeDuration ? parseInt(data.feeDuration, 10) : null,
+        fee_as_long_as_continues: data.feeAsLongAsContinues || false,
         photo_url: docUrls.photoUrl,
         birth_certificate_url: docUrls.birthCertificateUrl,
         transcript_url: docUrls.transcriptUrl,
@@ -266,36 +298,94 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
       const activeProfileId = profileResp && profileResp.length > 0 ? profileResp[0].id : null;
       const actualStudentId = profileResp && profileResp.length > 0 ? profileResp[0].student_id || profileResp[0].id : null;
 
-      // 3. Generate Custom Invoices (Override trigger-generated)
+      // 3. Generate Course Fee Invoices
       try {
          const feeAmount = parseFloat(data.feePerInstallmentAmount);
          const downpayment = data.downpaymentAmount && data.downpaymentAmount.trim() !== "" ? parseFloat(data.downpaymentAmount) : null;
-         const feeGap = parseInt(data.feeInstallmentGap, 10);
-         const numInstallments = parseInt(data.feeDuration || "12", 10); // Standardize to 12 if indefinite, or we can use duration value.
          
          const invoicesToCreate = [];
-         const today = new Date(data.enrollmentDate || new Date());
-         for (let i = 1; i <= numInstallments; i++) {
-            const dueDate = new Date(today);
-            // First installment (i=1) on enrollment date, second after gap, etc.
-            dueDate.setMonth(today.getMonth() + ((i - 1) * feeGap));
-            
-            let amt = feeAmount;
-            let cat = `Custom Fee - Installment ${i}`;
-            if (i === 1 && downpayment !== null) {
-               amt = downpayment;
-               cat = `Downpayment / Installment 1`;
-            }
+         const todayStr = data.enrollmentDate || new Date().toISOString().split('T')[0];
+         
+         let invoiceIndex = 1;
+         let remaining = feeAmount;
 
+         if (downpayment !== null && downpayment > 0) {
             invoicesToCreate.push({
-               id: `INV-${actualStudentId || activeProfileId}-${Date.now()}-${i}`,
+               id: `INV-${actualStudentId || activeProfileId}-${Date.now()}-${invoiceIndex++}`,
                student_id: actualStudentId || activeProfileId,
                student_name: `${data.firstName} ${data.lastName}`,
-               category: cat,
-               amount: amt,
-               due_date: dueDate.toISOString().split('T')[0],
+               category: `Downpayment / Registration Fee`,
+               amount: downpayment,
+               due_date: todayStr,
                status: 'Unpaid'
             });
+            remaining -= downpayment;
+         }
+
+         if (remaining > 0) {
+             if (data.divideRemaining && data.targetEndMonth) {
+                 if (data.customEmis && data.customEmis.length > 0) {
+                     data.customEmis.forEach((emi) => {
+                         invoicesToCreate.push({
+                            id: `INV-${actualStudentId || activeProfileId}-${Date.now()}-${invoiceIndex++}`,
+                            student_id: actualStudentId || activeProfileId,
+                            student_name: `${data.firstName} ${data.lastName}`,
+                            category: emi.label,
+                            amount: emi.amount,
+                            due_date: emi.date,
+                            status: 'Unpaid'
+                         });
+                     });
+                 } else {
+                     // Fallback if component hasn't reported correctly
+                     const startDate = new Date(todayStr); // using enrollment date
+                     const endDate = new Date(data.targetEndMonth);
+                     
+                     let monthsDiff = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth());
+                     if (monthsDiff <= 0) monthsDiff = 1;
+                     else monthsDiff += 1;
+
+                     const emiAmount = remaining / monthsDiff;
+
+                     for (let i = 0; i < monthsDiff; i++) {
+                        const idue = new Date(startDate.getFullYear(), startDate.getMonth() + i, startDate.getDate());
+                        const monthName = idue.toLocaleString('default', { month: 'long', year: 'numeric' });
+                        invoicesToCreate.push({
+                           id: `INV-${actualStudentId || activeProfileId}-${Date.now()}-${invoiceIndex++}`,
+                           student_id: actualStudentId || activeProfileId,
+                           student_name: `${data.firstName} ${data.lastName}`,
+                           category: `${monthName} Installment`,
+                           amount: parseFloat(emiAmount.toFixed(2)),
+                           due_date: idue.toISOString().split('T')[0],
+                           status: 'Unpaid'
+                        });
+                     }
+                 }
+             } else {
+                 if (data.annualEmis && data.annualEmis.length > 0) {
+                     data.annualEmis.forEach((emi, idx) => {
+                         invoicesToCreate.push({
+                            id: `INV-${actualStudentId || activeProfileId}-${Date.now()}-${invoiceIndex++}`,
+                            student_id: actualStudentId || activeProfileId,
+                            student_name: `${data.firstName} ${data.lastName}`,
+                            category: emi.label,
+                            amount: emi.amount,
+                            due_date: emi.date || todayStr,
+                            status: 'Unpaid'
+                         });
+                     });
+                 } else {
+                     invoicesToCreate.push({
+                        id: `INV-${actualStudentId || activeProfileId}-${Date.now()}-${invoiceIndex++}`,
+                        student_id: actualStudentId || activeProfileId,
+                        student_name: `${data.firstName} ${data.lastName}`,
+                        category: downpayment !== null && downpayment > 0 ? `Remaining Course Fee Balance` : `Total Tuition Fee`,
+                        amount: remaining,
+                        due_date: todayStr,
+                        status: 'Unpaid'
+                     });
+                 }
+             }
          }
 
          // Backend API call to replace invoices
@@ -309,7 +399,7 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
             })
          });
       } catch (invoiceErr) {
-         console.warn("Failed to generate custom invoices, fallback to trigger:", invoiceErr);
+         console.warn("Failed to generate custom invoices:", invoiceErr);
       }
 
       // Log activity
@@ -574,49 +664,117 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                   {currentStep === 2 && (
                     <div className="space-y-5">
                       <div className="space-y-4 border-b border-muted/20 pb-4">
-                        <h3 className="font-bold text-sm tracking-tight">Custom Fee Structure</h3>
-                        <p className="text-sm text-muted-foreground">Define a particular fee breakdown for this specific student.</p>
+                        <h3 className="font-bold text-sm tracking-tight">Tuition Fee Setup</h3>
+                        <p className="text-sm text-muted-foreground">Define the program fee structure for this student admission.</p>
                         
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Downpayment (Optional)</label>
-                            <Input type="number" {...register("downpaymentAmount")} placeholder="e.g. 10000" />
+                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total Course Fee *</label>
+                            <Input type="number" {...register("feePerInstallmentAmount")} placeholder="e.g. 50000" />
+                            {errors.feePerInstallmentAmount && <span className="text-[10px] text-destructive">{errors.feePerInstallmentAmount.message}</span>}
                           </div>
                           <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Regular Installment Amount *</label>
-                            <Input type="number" {...register("feePerInstallmentAmount")} placeholder="e.g. 5000" />
-                            {errors.feePerInstallmentAmount && <span className="text-[10px] text-destructive">{errors.feePerInstallmentAmount.message}</span>}
+                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Initial Downpayment / Registration Fee</label>
+                            <Input type="number" {...register("downpaymentAmount")} placeholder="Optional (e.g. 10000)" />
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4 mt-4">
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Per Installment Gap (Months) *</label>
-                            <Input type="number" {...register("feeInstallmentGap")} placeholder="e.g. 1" />
-                            {errors.feeInstallmentGap && <span className="text-[10px] text-destructive">{errors.feeInstallmentGap.message}</span>}
-                          </div>
-                           <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Duration (Total Installments)</label>
-                            <Input type="number" {...register("feeDuration")} placeholder="Leave empty if indefinite" />
-                          </div>
+                        <Tabs defaultValue="monthly" className="w-full mt-6">
+                          <TabsList className="grid w-full grid-cols-2">
+                             <TabsTrigger value="monthly">Monthly / Custom EMIs</TabsTrigger>
+                             <TabsTrigger value="annual">Annual Fee System</TabsTrigger>
+                          </TabsList>
                           
-                          <div className="flex items-center space-x-2 pt-6">
-                            <Controller
-                              name="feeAsLongAsContinues"
-                              control={control}
-                              render={({ field }) => (
-                                <Checkbox 
-                                  id="feeAsLongAsContinues" 
-                                  checked={field.value} 
-                                  onCheckedChange={field.onChange} 
-                                />
-                              )}
-                            />
-                            <label htmlFor="feeAsLongAsContinues" className="text-sm font-medium leading-none">
-                              As long as student continues
-                            </label>
-                          </div>
-                        </div>
+                          <TabsContent value="monthly" className="pt-4 border border-border/50 rounded-lg p-4 mt-2 bg-card">
+                             <div className="space-y-4">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input 
+                                    type="checkbox" 
+                                    {...register("divideRemaining")}
+                                    className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                  />
+                                  <span className="text-sm font-medium leading-none">Divide remaining amount into EMIs?</span>
+                                </label>
+                                {watch("divideRemaining") && (
+                                  <div className="grid grid-cols-2 gap-4 mt-3">
+                                    <div className="space-y-1">
+                                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Frequency *</label>
+                                      <select 
+                                         {...register("emiFrequency")}
+                                         className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                      >
+                                         <option value="Monthly">Monthly</option>
+                                         <option value="Quarterly">Quarterly</option>
+                                         <option value="Half-Yearly">Half-Yearly</option>
+                                         <option value="Annually">Annually</option>
+                                      </select>
+                                    </div>
+                                    <div className="space-y-1">
+                                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Target End Date *</label>
+                                      <Input type="date" {...register("targetEndMonth")} />
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground mt-1 col-span-2">The remaining balance will be divided equally into each term between the enrollment date and this month.</p>
+                                  </div>
+                                )}
+                                
+                                {watch("divideRemaining") && watch("targetEndMonth") && parseFloat(watch("feePerInstallmentAmount")) > 0 && (
+                                   <FeeEmiPreview 
+                                     totalCourseFee={parseFloat(watch("feePerInstallmentAmount")) || 0}
+                                     downpayment={parseFloat(watch("downpaymentAmount")) || 0}
+                                     targetEndMonth={watch("targetEndMonth")}
+                                     enrollmentDate={watch("enrollmentDate")}
+                                     emiFrequency={watch("emiFrequency")}
+                                     onEmisChange={(emis) => setValue("customEmis", emis)}
+                                   />
+                                )}
+                             </div>
+                          </TabsContent>
+                          
+                          <TabsContent value="annual" className="pt-4 border border-border/50 rounded-lg p-4 mt-2 bg-card">
+                             <div className="space-y-4">
+                                <div className="space-y-1 sm:w-2/3">
+                                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">EMI Frequency *</label>
+                                  <div className="flex gap-2">
+                                     <select 
+                                        {...register("annualEmiFrequency")}
+                                        className="flex h-9 w-40 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                     >
+                                        <option value="Monthly">Monthly</option>
+                                        <option value="Quarterly">Quarterly</option>
+                                        <option value="Half-Yearly">Half-Yearly</option>
+                                        <option value="Annually">Annually</option>
+                                        <option value="Custom">Custom</option>
+                                     </select>
+                                     
+                                     {watch("annualEmiFrequency") === "Custom" && (
+                                       <>
+                                         <div className="flex flex-col">
+                                            <Input type="number" {...register("annualEmiCustomTerms")} placeholder="# Emis" className="w-20 font-mono h-9" />
+                                            <span className="text-[9px] text-muted-foreground mt-1">Total EMIs</span>
+                                         </div>
+                                         <div className="flex flex-col">
+                                            <Input type="number" {...register("annualEmiCustomGap")} placeholder="Gap" className="w-20 font-mono h-9" />
+                                            <span className="text-[9px] text-muted-foreground mt-1">Gap (Months)</span>
+                                         </div>
+                                       </>
+                                     )}
+                                  </div>
+                                </div>
+                                
+                                {!watch("divideRemaining") && parseFloat(watch("feePerInstallmentAmount")) > 0 && (
+                                   <AnnualEmiPolicyMaker 
+                                     totalCourseFee={parseFloat(watch("feePerInstallmentAmount")) || 0}
+                                     downpayment={parseFloat(watch("downpaymentAmount")) || 0}
+                                     frequency={watch("annualEmiFrequency")}
+                                     customTerms={watch("annualEmiCustomTerms") ? parseInt(watch("annualEmiCustomTerms")) : undefined}
+                                     customGap={watch("annualEmiCustomGap") ? parseInt(watch("annualEmiCustomGap")) : undefined}
+                                     enrollmentDate={watch("enrollmentDate")}
+                                     onPolicyChange={(emis) => setValue("annualEmis", emis)}
+                                   />
+                                )}
+                             </div>
+                          </TabsContent>
+                        </Tabs>
                       </div>
                     </div>
                   )}

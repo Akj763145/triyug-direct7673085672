@@ -11,6 +11,8 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import { FeeEmiPreview } from '../components/FeeEmiPreview';
+import { AnnualEmiPolicyMaker } from '../components/AnnualEmiPolicyMaker';
 import { 
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription 
 } from '../components/ui/dialog';
@@ -88,6 +90,15 @@ export function StudentProfile() {
   const [editForm, setEditForm] = useState<Partial<Student>>({});
   const [uploading, setUploading] = useState(false);
   const [showIDCard, setShowIDCard] = useState(false);
+  
+  const [editDivideRemaining, setEditDivideRemaining] = useState(false);
+  const [editTargetEndMonth, setEditTargetEndMonth] = useState("");
+  const [editEmiFrequency, setEditEmiFrequency] = useState("Monthly");
+  const [editCustomEmis, setEditCustomEmis] = useState<any[]>([]);
+  
+  const [editActiveEmiTab, setEditActiveEmiTab] = useState("monthly");
+  const [editAnnualEmiFrequency, setEditAnnualEmiFrequency] = useState("Monthly");
+  const [editAnnualEmis, setEditAnnualEmis] = useState<any[]>([]);
 
   // Attendance specific states
   const [selectedDay, setSelectedDay] = useState<AttendanceRecord | null>(null);
@@ -351,6 +362,26 @@ export function StudentProfile() {
         }
       }
 
+      let derived_fee: number | undefined = undefined;
+      let derived_gap: number | undefined = undefined;
+      let derived_dur: number | undefined = undefined;
+      
+      if (!invoiceError && invoiceData && invoiceData.length > 0) {
+          const primaryInvs = invoiceData.filter((i: any) => (i.category && i.category.includes('Installment')) || (i.title && i.title.includes('Installment')) || i.type === 'Primary').sort((a:any, b:any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+          if (primaryInvs.length > 0) {
+              derived_dur = primaryInvs.length;
+              derived_fee = Number(primaryInvs[0].amount);
+              if (primaryInvs.length > 1) {
+                  const d1 = new Date(primaryInvs[0].due_date);
+                  const d2 = new Date(primaryInvs[1].due_date);
+                  let diffMonths = (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth());
+                  derived_gap = diffMonths > 0 ? diffMonths : 1;
+              } else {
+                  derived_gap = 1;
+              }
+          }
+      }
+
       if (profileData) {
         // Safe photo URL fetch: fallback to localStorage cached version if database value is empty or invalid blob
         const dbPhoto = profileData.photo_url;
@@ -362,6 +393,9 @@ export function StudentProfile() {
         // Map to expected Student format
         const mappedStudent: Student = {
           ...profileData,
+          fee_per_installment: profileData.fee_per_installment || derived_fee,
+          fee_interval_months: profileData.fee_interval_months || derived_gap,
+          fee_duration_value: profileData.fee_duration_value || derived_dur,
           id: profileData.student_id || profileData.id,
           name: `${profileData.first_name} ${profileData.last_name}`,
           grade: resolvedGrade,
@@ -370,7 +404,7 @@ export function StudentProfile() {
           photo_url: finalPhoto,
         };
         setStudent(mappedStudent);
-        setEditForm(mappedStudent);
+        setEditForm({...mappedStudent});
       } else {
         if (studentError || !studentData) throw studentError || new Error("Student not found");
 
@@ -382,11 +416,14 @@ export function StudentProfile() {
 
         const mappedOld: Student = {
           ...studentData,
+          fee_per_installment: studentData.fee_per_installment || derived_fee,
+          fee_interval_months: studentData.fee_interval_months || derived_gap,
+          fee_duration_value: studentData.fee_duration_value || derived_dur,
           grade: resolvedGrade,
           photo_url: finalPhoto
         };
         setStudent(mappedOld);
-        setEditForm(mappedOld);
+        setEditForm({...mappedOld});
       }
 
       if (!invoiceError && invoiceData) {
@@ -478,7 +515,7 @@ export function StudentProfile() {
           amount: Number(t.amount),
           paymentMethod: t.payment_method || 'SYSTEM',
           status: t.status || 'Success'
-        }));
+        })).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
         setTransactions(mappedTxns);
       } else {
         setTransactions([]);
@@ -654,65 +691,65 @@ export function StudentProfile() {
           
           // Check if we need to call override for fee calculation
           const target_fee_per_installment = editForm.fee_per_installment !== undefined ? editForm.fee_per_installment : student.fee_per_installment;
-          const target_fee_interval_months = editForm.fee_interval_months !== undefined ? editForm.fee_interval_months : student.fee_interval_months;
-          const target_fee_duration_value = editForm.fee_duration_value !== undefined ? editForm.fee_duration_value : student.fee_duration_value;
-          const target_fee_as_long = editForm.fee_as_long_as_continues !== undefined ? editForm.fee_as_long_as_continues : student.fee_as_long_as_continues;
 
-          const feeChanged = 
-            target_fee_per_installment !== student.fee_per_installment ||
-            target_fee_interval_months !== student.fee_interval_months ||
-            target_fee_duration_value !== student.fee_duration_value ||
-            target_fee_as_long !== student.fee_as_long_as_continues;
+          const feeChanged = target_fee_per_installment !== student.fee_per_installment;
+          const forceDivide = editDivideRemaining && editTargetEndMonth && editActiveEmiTab === "monthly";
+          const forceAnnualDivide = editActiveEmiTab === "annual" && editAnnualEmis.length > 0;
 
-          if (feeChanged && target_fee_per_installment && target_fee_interval_months) {
+          if ((feeChanged || forceDivide || forceAnnualDivide) && target_fee_per_installment) {
                  const feeAmount = parseFloat(target_fee_per_installment.toString());
-                 const feeGap = parseInt(target_fee_interval_months.toString(), 10);
-                 const numInstallments = target_fee_duration_value ? parseInt(target_fee_duration_value.toString(), 10) : 12; // Use 12 if indefinite
                  
-                 const { data: existingInvoices } = await supabase
-                     .from('invoices')
-                     .select('id, student_id, status, amount, due_date')
+                 // Delete all unpaid Tuition Fee invoices and replace with new ones
+                 await supabase.from('invoices')
+                     .delete()
                      .eq('student_id', student?.student_id || profileCheck.id)
-                     .order('due_date', { ascending: true });
-                 
-                 const existingCount = existingInvoices ? existingInvoices.length : 0;
-                 const startDateStr = existingCount > 0 ? existingInvoices[existingCount - 1].due_date : (student?.enrollment_date || student?.created_at || new Date().toISOString().split('T')[0]);
-                 const startDate = new Date(startDateStr);
-                 
+                     .in('status', ['Unpaid', 'Upcoming'])
+                     .or('category.eq.Total Tuition Fee,category.eq.Remaining Course Fee Balance,category.like.Course Fee Installment%,category.like.%Installment');
+
+                 const todayStr = new Date().toISOString().split('T')[0];
                  const invoicesToCreate = [];
-                 if (numInstallments > existingCount) {
-                    for (let i = existingCount + 1; i <= numInstallments; i++) {
-                       const dueDate = new Date(startDate);
-                       if (existingCount > 0) {
-                           dueDate.setMonth(dueDate.getMonth() + feeGap * (i - existingCount));
-                       } else {
-                           dueDate.setMonth(dueDate.getMonth() + feeGap * (i - 1));
-                       }
-                       
-                       invoicesToCreate.push({
-                           id: `INV-${student?.student_id || profileCheck.id}-${Date.now()}-${i}`,
-                           student_id: student?.student_id || profileCheck.id,
-                           student_name: editForm.name || student?.name,
-                           category: `Custom Fee - Installment ${i}`,
-                           amount: feeAmount,
-                           due_date: dueDate.toISOString().split('T')[0],
-                           status: 'Unpaid'
-                       });
-                    }
-                    if (invoicesToCreate.length > 0) {
-                        try {
-                           await supabase.from('invoices').insert(invoicesToCreate);
-                        } catch(e) { console.error("Failed to insert diff invoices", e); }
-                    }
-                 } else if (numInstallments < existingCount) {
-                    const diff = existingCount - numInstallments;
-                    const invoicesToDelete = existingInvoices.slice(-diff).filter(inv => inv.status === 'Unpaid' || inv.status === 'Upcoming');
-                    if (invoicesToDelete.length > 0) {
-                        const deleteIds = invoicesToDelete.map(inv => inv.id);
-                        try {
-                           await supabase.from('invoices').delete().in('id', deleteIds);
-                        } catch (e) { console.error("Failed to delete extra invoices", e); }
-                    }
+                 
+                 if (editActiveEmiTab === "monthly" && forceDivide && editCustomEmis && editCustomEmis.length > 0) {
+                     let idx = 1;
+                     editCustomEmis.forEach((emi) => {
+                         invoicesToCreate.push({
+                             id: `INV-${student?.student_id || profileCheck.id}-${Date.now()}-upd-${idx++}`,
+                             student_id: student?.student_id || profileCheck.id,
+                             student_name: editForm.name || student?.name,
+                             category: emi.label,
+                             amount: emi.amount,
+                             due_date: emi.date,
+                             status: 'Unpaid'
+                         });
+                     });
+                 } else if (editActiveEmiTab === "annual" && editAnnualEmis && editAnnualEmis.length > 0) {
+                     let idx = 1;
+                     editAnnualEmis.forEach((emi) => {
+                         invoicesToCreate.push({
+                             id: `INV-${student?.student_id || profileCheck.id}-${Date.now()}-upd-${idx++}`,
+                             student_id: student?.student_id || profileCheck.id,
+                             student_name: editForm.name || student?.name,
+                             category: emi.label,
+                             amount: emi.amount,
+                             due_date: emi.date,
+                             status: 'Unpaid'
+                         });
+                     });
+                 } else {
+                     // Insert the single correct Total Tuition Fee if they didn't divide
+                     invoicesToCreate.push({
+                         id: `INV-${student?.student_id || profileCheck.id}-${Date.now()}-update`,
+                         student_id: student?.student_id || profileCheck.id,
+                         student_name: editForm.name || student?.name,
+                         category: `Total Tuition Fee`,
+                         amount: feeAmount,
+                         due_date: todayStr,
+                         status: 'Unpaid'
+                     });
+                 }
+
+                 if (invoicesToCreate.length > 0) {
+                     await supabase.from('invoices').insert(invoicesToCreate);
                  }
           }
       } else {
@@ -983,8 +1020,8 @@ export function StudentProfile() {
       .filter(t => (t.invoiceId === inv.id || t.invoice_id === inv.id) && 
                    (t.status === 'Success' || t.status === 'success') &&
                    t.type !== 'Discount' && t.category !== 'Discount' && 
-                   !t.description.toLowerCase().includes('discount') &&
-                   !t.description.toLowerCase().includes('scholarship') &&
+                   !t.description?.toLowerCase().includes('discount') &&
+                   !t.description?.toLowerCase().includes('scholarship') &&
                    Number(t.amount) > 0)
       .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
@@ -993,8 +1030,8 @@ export function StudentProfile() {
       .filter(t => (t.invoiceId === inv.id || t.invoice_id === inv.id) && 
                    (t.status === 'Success' || t.status === 'success') &&
                    (t.type === 'Discount' || t.category === 'Discount' || 
-                    t.description.toLowerCase().includes('discount') || 
-                    t.description.toLowerCase().includes('scholarship') ||
+                    t.description?.toLowerCase().includes('discount') || 
+                    t.description?.toLowerCase().includes('scholarship') ||
                     Number(t.amount) < 0))
       .reduce((sum, t) => sum + Math.abs(Number(t.amount) || 0), 0);
 
@@ -1002,7 +1039,7 @@ export function StudentProfile() {
     const lateFeeAmount = transactions
       .filter(t => (t.invoiceId === inv.id || t.invoice_id === inv.id) && 
                    (t.status === 'Success' || t.status === 'success') &&
-                   (t.type === 'Late Fee' || t.description.toLowerCase().includes('late fee') || t.description.toLowerCase().includes('penalty')) &&
+                   (t.type === 'Late Fee' || t.description?.toLowerCase().includes('late fee') || t.description?.toLowerCase().includes('penalty')) &&
                    Number(t.amount) > 0)
       .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
@@ -1030,7 +1067,7 @@ export function StudentProfile() {
       netInvoiceAmount,
       amountDue: Math.max(0, netInvoiceAmount - amountPaid)
     };
-  });
+  }).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 
   const totalInvoiceOriginalAmount = computedInvoices.reduce((acc, curr) => acc + curr.totalAmount, 0);
   const totalDiscounts = computedInvoices.reduce((acc, curr) => acc + (curr.discountAmount || 0), 0);
@@ -1365,52 +1402,138 @@ export function StudentProfile() {
 
                     {/* Fee Structure */}
                     <div className="border-t pt-4">
-                      <h3 className="font-serif text-sm font-bold text-primary mb-4 uppercase tracking-widest">Fee Structure (Billing)</h3>
+                      <h3 className="font-serif text-sm font-bold text-primary mb-4 uppercase tracking-widest">Fee Structure</h3>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Per Installment Amount (₹)</label>
-                          <Input 
-                            type="number"
-                            value={editForm.fee_per_installment || ""} 
-                            onChange={(e) => setEditForm({...editForm, fee_per_installment: parseFloat(e.target.value) || null})}
-                            readOnly={!isEditing} 
-                            placeholder="e.g. 5000"
-                            className={!isEditing ? "bg-muted/10 border-none font-medium pointer-events-none font-mono" : "bg-muted/30 font-mono"} 
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Installment Gap (Months)</label>
-                          <Input 
-                            type="number"
-                            value={editForm.fee_interval_months || ""} 
-                            onChange={(e) => setEditForm({...editForm, fee_interval_months: parseInt(e.target.value) || null})}
-                            readOnly={!isEditing} 
-                            placeholder="e.g. 1"
-                            className={!isEditing ? "bg-muted/10 border-none font-medium pointer-events-none" : "bg-muted/30"} 
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Duration (Installments)</label>
-                          <Input 
-                            type="number"
-                            value={editForm.fee_duration_value || ""} 
-                            onChange={(e) => setEditForm({...editForm, fee_duration_value: parseInt(e.target.value) || null})}
-                            readOnly={!isEditing}
-                            placeholder="Leave empty if indefinite"
-                            className={!isEditing ? "bg-muted/10 border-none font-medium pointer-events-none" : "bg-muted/30"} 
-                          />
-                        </div>
-                        <div className="space-y-2 flex items-center pt-8">
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input 
-                              type="checkbox" 
-                              checked={editForm.fee_as_long_as_continues || false}
-                              onChange={(e) => setEditForm({...editForm, fee_as_long_as_continues: e.target.checked})}
-                              disabled={!isEditing}
-                              className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
-                            />
-                            <span className="text-sm font-medium leading-none">As long as student continues</span>
-                          </label>
+                        <div className="space-y-4 sm:col-span-2">
+                           <div className="space-y-2 w-full sm:w-1/2">
+                             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tuition Fee Amount (₹)</label>
+                             <Input 
+                               type="number"
+                               value={editForm.fee_per_installment || ""} 
+                               onChange={(e) => setEditForm({...editForm, fee_per_installment: parseFloat(e.target.value) || null})}
+                               readOnly={!isEditing} 
+                               placeholder="e.g. 50000"
+                               className={!isEditing ? "bg-muted/10 border-none font-medium pointer-events-none font-mono" : "bg-muted/30 font-mono"} 
+                             />
+                           </div>
+                           
+                           {isEditing && (
+                              <Tabs value={editActiveEmiTab} onValueChange={setEditActiveEmiTab} className="w-full mt-4">
+                                <TabsList className="grid w-full grid-cols-2">
+                                  <TabsTrigger value="monthly">Monthly / Custom EMIs</TabsTrigger>
+                                  <TabsTrigger value="annual">Annual Fee System</TabsTrigger>
+                                </TabsList>
+                                <TabsContent value="monthly" className="space-y-4 pt-4 border-t border-muted/20">
+                                  <label className="flex items-center gap-2 cursor-pointer">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={editDivideRemaining}
+                                      onChange={(e) => setEditDivideRemaining(e.target.checked)}
+                                      className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                    />
+                                    <span className="text-sm font-medium leading-none">Divide remaining amount into EMIs?</span>
+                                  </label>
+                                  {editDivideRemaining && (
+                                    <div className="grid grid-cols-2 gap-4 mt-3 w-full sm:w-3/4">
+                                      <div className="space-y-1">
+                                        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Frequency *</label>
+                                        <select 
+                                           value={editEmiFrequency}
+                                           onChange={(e) => setEditEmiFrequency(e.target.value)}
+                                           className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                           <option value="Monthly">Monthly</option>
+                                           <option value="Quarterly">Quarterly</option>
+                                           <option value="Half-Yearly">Half-Yearly</option>
+                                           <option value="Annually">Annually</option>
+                                        </select>
+                                      </div>
+                                      <div className="space-y-1">
+                                        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Target End Date *</label>
+                                        <Input 
+                                           type="date" 
+                                           value={editTargetEndMonth}
+                                           onChange={(e) => setEditTargetEndMonth(e.target.value)}
+                                        />
+                                      </div>
+                                      <p className="text-[10px] text-muted-foreground mt-1 col-span-2">The remaining balance will be divided equally into each term between the enrollment date and this month.</p>
+                                    </div>
+                                  )}
+                                  
+                                  {editDivideRemaining && editTargetEndMonth && (editForm.fee_per_installment || 0) > 0 && (
+                                     <FeeEmiPreview 
+                                       totalCourseFee={editForm.fee_per_installment || 0}
+                                       downpayment={computedInvoices.reduce((sum, inv) => {
+                                          const paidForInv = transactions.filter(t => t.invoice_id === inv.id || t.invoiceId === inv.id).reduce((s, t) => s + (t.amount || 0), 0);
+                                          return sum + paidForInv;
+                                       }, 0)}
+                                       targetEndMonth={editTargetEndMonth}
+                                       enrollmentDate={student?.enrollment_date || new Date().toISOString().split('T')[0]}
+                                       emiFrequency={editEmiFrequency}
+                                       onEmisChange={setEditCustomEmis}
+                                     />
+                                  )}
+                                </TabsContent>
+                                <TabsContent value="annual" className="pt-4 border-t border-muted/20">
+                                   <div className="space-y-4">
+                                      <div className="space-y-1 sm:w-2/3">
+                                        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">EMI Frequency *</label>
+                                        <div className="flex gap-2">
+                                           <select 
+                                              value={editAnnualEmiFrequency}
+                                              onChange={(e) => setEditAnnualEmiFrequency(e.target.value)}
+                                              className="flex h-9 w-40 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                           >
+                                              <option value="Monthly">Monthly</option>
+                                              <option value="Quarterly">Quarterly</option>
+                                              <option value="Half-Yearly">Half-Yearly</option>
+                                              <option value="Annually">Annually</option>
+                                              <option value="Custom">Custom</option>
+                                           </select>
+                                           
+                                           {editAnnualEmiFrequency === "Custom" && (
+                                             <>
+                                               <div className="flex flex-col">
+                                                  <Input type="number" 
+                                                    value={editForm.annualEmiCustomTerms || ''} 
+                                                    onChange={(e) => setEditForm(prev => ({...prev, annualEmiCustomTerms: e.target.value}))}
+                                                    placeholder="# Emis" 
+                                                    className="w-20 font-mono h-9" 
+                                                  />
+                                                  <span className="text-[9px] text-muted-foreground mt-1">Total EMIs</span>
+                                               </div>
+                                               <div className="flex flex-col">
+                                                  <Input type="number" 
+                                                    value={editForm.annualEmiCustomGap || ''} 
+                                                    onChange={(e) => setEditForm(prev => ({...prev, annualEmiCustomGap: e.target.value}))}
+                                                    placeholder="Gap" 
+                                                    className="w-20 font-mono h-9" 
+                                                  />
+                                                  <span className="text-[9px] text-muted-foreground mt-1">Gap (Months)</span>
+                                               </div>
+                                             </>
+                                           )}
+                                        </div>
+                                      </div>
+                                      
+                                      {(editForm.fee_per_installment || 0) > 0 && (
+                                         <AnnualEmiPolicyMaker 
+                                           totalCourseFee={editForm.fee_per_installment || 0}
+                                           downpayment={computedInvoices.reduce((sum, inv) => {
+                                              const paidForInv = transactions.filter(t => t.invoice_id === inv.id || t.invoiceId === inv.id).reduce((s, t) => s + (t.amount || 0), 0);
+                                              return sum + paidForInv;
+                                           }, 0)}
+                                           frequency={editAnnualEmiFrequency}
+                                           customTerms={editForm.annualEmiCustomTerms ? parseInt(editForm.annualEmiCustomTerms as string) : undefined}
+                                           customGap={editForm.annualEmiCustomGap ? parseInt(editForm.annualEmiCustomGap as string) : undefined}
+                                           enrollmentDate={editForm.enrollment_date}
+                                           onPolicyChange={setEditAnnualEmis}
+                                         />
+                                      )}
+                                   </div>
+                                </TabsContent>
+                              </Tabs>
+                           )}
                         </div>
                       </div>
                     </div>
@@ -1882,7 +2005,7 @@ export function StudentProfile() {
                </CardContent>
             </Card>
 
-            {/* 2. INSTALLMENTS SECTION */}
+            {/* 2. INVOICES SECTION */}
             <Card className="border-muted/20 bg-card/40 backdrop-blur-md relative overflow-hidden group">
                <div className="absolute top-0 left-0 w-1 bg-cyan-500 h-full"></div>
                <CardHeader 
@@ -1892,13 +2015,11 @@ export function StudentProfile() {
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center justify-between w-full">
                       <div className="flex items-center gap-2">
-                        <Clock className="h-3 w-3" /> INSTALLMENTS SECTION
+                        <Clock className="h-3 w-3" /> BILLING TIMELINE
                       </div>
-                      {computedInvoices.length > 1 && (
-                        <div className="text-[8px] font-mono text-primary/60 lowercase italic pr-4">
-                           spread across entire batch duration
-                        </div>
-                      )}
+                      <div className="text-[10px] font-mono text-primary/60 lowercase italic pr-4">
+                         Chronological View
+                      </div>
                     </CardTitle>
                     {showInstallments ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                   </div>
@@ -1910,7 +2031,7 @@ export function StudentProfile() {
                         onClick={() => setShowInstallments(true)}
                      >
                         <div className="text-3xl font-black text-foreground mb-1 group-hover/summary:text-cyan-500 transition-colors">{computedInvoices.length}</div>
-                        <p className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground">Total Installments</p>
+                        <p className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground">Total Invoices</p>
                         <div className="mt-6 flex flex-wrap justify-center gap-2">
                            <div className="px-4 py-2 rounded-xl bg-emerald-500/5 border border-emerald-500/10 text-center min-w-[75px] shadow-sm">
                               <div className="text-lg font-black text-emerald-600 leading-none">{computedInvoices.filter(i => i.computedStatus === 'Paid').length}</div>
@@ -1928,54 +2049,54 @@ export function StudentProfile() {
                      </div>
                   ) : (
                      <div className="max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
-                        <div className="space-y-4 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[1px] before:bg-muted/30">
+                        <div className="space-y-0.5">
                           {computedInvoices.length === 0 ? (
-                             <div className="text-center py-6 text-muted-foreground text-[10px] uppercase font-bold tracking-widest animate-pulse">No Installments Found</div>
+                             <div className="text-center py-6 text-muted-foreground text-[10px] uppercase font-bold tracking-widest animate-pulse">No Invoices Found</div>
                           ) : (
                             computedInvoices.map((inst, i) => (
-                            <div key={inst.id} className="flex items-start gap-4 group/item pl-1">
-                               <div className={`h-6 w-6 rounded-full flex items-center justify-center shrink-0 z-10 border-2 transition-all group-hover/item:scale-110 ${inst.computedStatus === 'Paid' ? 'bg-background border-success text-success shadow-[0_0_10px_rgba(22,163,74,0.2)]' : inst.computedStatus === 'Overdue' ? 'bg-background border-destructive text-destructive shadow-[0_0_10px_rgba(220,38,38,0.2)]' : inst.computedStatus === 'Partial' ? 'bg-background border-warning text-warning shadow-[0_0_10px_rgba(217,119,6,0.2)]' : 'bg-background border-muted text-muted-foreground'}`}>
-                                  {inst.computedStatus === 'Paid' ? <CheckCircle2 className="h-3 w-3" /> : (inst.computedStatus === 'Overdue' || inst.computedStatus === 'Partial') ? <AlertCircle className="h-3 w-3" /> : <div className="h-1.5 w-1.5 bg-current rounded-full" />}
-                               </div>
-                               <div className="flex-1 pb-5 border-b border-muted/10 last:border-0 last:pb-0">
+                            <div key={inst.id} className="flex items-center gap-4 group/item py-3 px-3 hover:bg-muted/5 transition-colors border-b border-muted/10 last:border-0 rounded-lg">
+                               <div className="flex-1">
                                   <div className="flex justify-between items-start mb-1">
                                      <div className="flex flex-col">
-                                        <span className="text-xs font-black tracking-widest text-foreground group-hover/item:text-primary transition-colors">{inst.title}</span>
-                                        {inst.discountAmount > 0 && (
-                                           <span className="text-[10px] text-emerald-500 font-semibold italic">Save promo: -₹{inst.discountAmount.toLocaleString()} discount</span>
-                                        )}
-                                        {inst.lateFeeAmount > 0 && (
-                                           <span className="text-[10px] text-amber-500 font-semibold italic">Adj: +₹{inst.lateFeeAmount.toLocaleString()} late fee</span>
+                                        <span className="text-[11px] font-black tracking-widest text-foreground group-hover/item:text-primary transition-colors flex items-center gap-2">
+                                          {inst.title}
+                                            {inst.type === 'Incidental' && (
+                                              <span className="text-[8px] font-black uppercase text-indigo-400 bg-indigo-400/10 px-1 rounded">Extra</span>
+                                            )}
+                                        </span>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                          <span className="text-[9px] opacity-60 font-mono italic">Due {new Date(inst.dueDate + 'T12:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                          <span className={`text-[8px] uppercase font-black tracking-tighter px-1.5 py-0.5 rounded leading-none ${inst.computedStatus === 'Paid' ? 'bg-success/10 text-success' : inst.computedStatus === 'Overdue' ? 'bg-destructive/10 text-destructive' : inst.computedStatus === 'Partial' ? 'bg-warning/10 text-warning' : 'bg-muted/20 text-muted-foreground'}`}>{inst.computedStatus}</span>
+                                        </div>
+                                     </div>
+                                    <div className="flex flex-col items-end">
+                                       {editingInvoiceId === inst.id ? (
+                                          <div className="flex items-center gap-1">
+                                            <Input 
+                                              type="number"
+                                              value={editInvoiceAmount}
+                                              onChange={(e) => setEditInvoiceAmount(e.target.value)}
+                                              className="h-6 w-20 text-xs px-1 font-mono text-right"
+                                              autoFocus
+                                              onKeyDown={(e) => {
+                                                 if (e.key === 'Enter') handleSaveInvoiceEdit();
+                                                 if (e.key === 'Escape') setEditingInvoiceId(null);
+                                              }}
+                                            />
+                                            <Button size="icon" variant="ghost" className="h-6 w-6 text-success" onClick={handleSaveInvoiceEdit}>
+                                              <CheckCircle2 className="h-3 w-3" />
+                                            </Button>
+                                            <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => setEditingInvoiceId(null)}>
+                                              <X className="h-3 w-3" />
+                                            </Button>
+                                          </div>
+                                       ) : (
+                                          <div className="text-sm font-black font-mono">₹{inst.totalAmount.toLocaleString()}</div>
+                                       )}
+                                        {inst.computedStatus === 'Partial' && inst.amountDue > 0 && editingInvoiceId !== inst.id && (
+                                           <div className="text-[9px] font-black text-destructive font-mono">Pending: ₹{(inst.amountDue || 0).toLocaleString()}</div>
                                         )}
                                      </div>
-                                     <div className="flex flex-col items-end">
-                                        {editingInvoiceId === inst.id ? (
-                                           <div className="flex items-center gap-1">
-                                             <Input 
-                                               type="number"
-                                               value={editInvoiceAmount}
-                                               onChange={(e) => setEditInvoiceAmount(e.target.value)}
-                                               className="h-6 w-20 text-xs px-1 font-mono text-right"
-                                               autoFocus
-                                               onKeyDown={(e) => {
-                                                  if (e.key === 'Enter') handleSaveInvoiceEdit();
-                                                  if (e.key === 'Escape') setEditingInvoiceId(null);
-                                               }}
-                                             />
-                                             <Button size="icon" variant="ghost" className="h-6 w-6 text-success" onClick={handleSaveInvoiceEdit}>
-                                               <CheckCircle2 className="h-3 w-3" />
-                                             </Button>
-                                             <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => setEditingInvoiceId(null)}>
-                                               <X className="h-3 w-3" />
-                                             </Button>
-                                           </div>
-                                        ) : (
-                                           <div className="text-sm font-black font-mono">₹{inst.totalAmount.toLocaleString()}</div>
-                                        )}
-                                         {(inst.computedStatus === 'Partial' || inst.amountDue > 0) && inst.computedStatus !== 'Paid' && editingInvoiceId !== inst.id && (
-                                            <div className="text-[9px] font-black text-destructive font-mono">Due: ₹{(inst.amountDue || 0).toLocaleString()}</div>
-                                         )}
-                                      </div>
                                   </div>
                                   
                                   {inst.computedStatus === 'Partial' && (
@@ -1987,7 +2108,9 @@ export function StudentProfile() {
                                   <div className="flex justify-between items-center mt-1">
                                      <div className="flex items-center gap-2">
                                         <span className={`text-[9px] uppercase font-black tracking-tighter px-1.5 py-0.5 rounded ${inst.computedStatus === 'Paid' ? 'bg-success/10 text-success' : inst.computedStatus === 'Overdue' ? 'bg-destructive/10 text-destructive' : inst.computedStatus === 'Partial' ? 'bg-warning/10 text-warning' : 'bg-muted/50 text-muted-foreground'}`}>{inst.computedStatus}</span>
-                                        <span className={`text-[8px] font-bold uppercase tracking-widest ${inst.type === 'Incidental' ? 'text-indigo-400' : 'opacity-40'}`}>{inst.type}</span>
+                                        {inst.type === 'Incidental' && (
+                                          <span className="text-[8px] font-bold uppercase tracking-widest text-indigo-400">Extra Charge</span>
+                                        )}
                                      </div>
                                      <div className="flex items-center gap-2">
                                         <span className="text-[9px] opacity-60 font-mono italic">Due {new Date(inst.dueDate + 'T12:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
@@ -2412,7 +2535,7 @@ export function StudentProfile() {
               </div>
               
               <div className="pt-2 border-t border-muted/30 space-y-2">
-                <p className="text-[9px] uppercase font-black tracking-widest text-muted-foreground font-sans">Installment Details</p>
+                <p className="text-[9px] uppercase font-black tracking-widest text-muted-foreground font-sans">Invoice Details</p>
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-bold">{receiptData?.installment_title}</span>
                   <span className="text-xs font-black text-emerald-600 bg-emerald-500/5 px-2 py-1 rounded">₹{receiptData?.paid_amount?.toLocaleString() || 0}</span>
@@ -2518,7 +2641,7 @@ export function StudentProfile() {
                   {/* Payment Form Shell */}
                   <div className="space-y-4">
                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Installment</label>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Invoice</label>
                         <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar">
                            {computedInvoices.filter(i => i.computedStatus !== 'Paid').map(inv => (
                              <button 
@@ -2537,7 +2660,7 @@ export function StudentProfile() {
                              </button>
                            ))}
                            {computedInvoices.filter(i => i.computedStatus !== 'Paid').length === 0 && (
-                              <div className="col-span-2 text-center py-4 text-xs font-mono text-muted-foreground">No pending installments.</div>
+                              <div className="col-span-2 text-center py-4 text-xs font-mono text-muted-foreground">No pending invoices.</div>
                            )}
                         </div>
                      </div>
