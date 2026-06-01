@@ -4,7 +4,7 @@ import {
   ArrowLeft, Upload, FileText, Download, Trash2, Calendar, IndianRupee, Save, X, File, 
   BarChart3, Clock, MessageSquare, AlertCircle, CheckCircle2, User, Award, Eye, ExternalLink,
   MapPin, Phone, Mail, QrCode, Send, Wallet, Receipt, History, Smartphone, MoreHorizontal,
-  Printer, Share2, Plus, CreditCard, Camera, GraduationCap, UserCheck, ChevronLeft, ChevronRight, ChevronDown, ChevronUp
+  Printer, Share2, Plus, CreditCard, Camera, GraduationCap, UserCheck, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Edit3
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -93,8 +93,11 @@ export function StudentProfile() {
   const [selectedDay, setSelectedDay] = useState<AttendanceRecord | null>(null);
 
   const [isPaymentDrawerOpen, setIsPaymentDrawerOpen] = useState(false);
+  const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
+  const [editInvoiceAmount, setEditInvoiceAmount] = useState<string>('');
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
   const [paymentAmount, setPaymentAmount] = useState<string>('');
+  const [collectedDate, setCollectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'Cash' | 'Cheque' | 'Card'>('UPI');
   const [paymentRefId, setPaymentRefId] = useState('');
   const [adjustmentAmount, setAdjustmentAmount] = useState<string>('');
@@ -604,12 +607,18 @@ export function StudentProfile() {
             primary_language: editForm.primary_language || null,
             date_of_birth: editForm.date_of_birth || null,
             
+            // Fee Structure
+            fee_per_installment: editForm.fee_per_installment || null,
+            fee_interval_months: editForm.fee_interval_months || null,
+            fee_duration_value: editForm.fee_duration_value || null,
+            fee_as_long_as_continues: editForm.fee_as_long_as_continues || false,
+
             // Parent/Guardian 1
             parent1_name: editForm.parent1_name || null,
             parent1_relation: editForm.parent1_relation || null,
             parent1_occupation: editForm.parent1_occupation || null,
             parent1_income: editForm.parent1_income || null,
-            parent1_email: editForm.parent1_email || null,
+            parent1_whatsapp: editForm.parent1_whatsapp || null,
             parent1_contact: editForm.contact || editForm.parent1_contact || null,
             
             // Parent/Guardian 2
@@ -642,6 +651,70 @@ export function StudentProfile() {
           })
           .eq('id', profileCheck.id);
           if (error) throw error;
+          
+          // Check if we need to call override for fee calculation
+          const target_fee_per_installment = editForm.fee_per_installment !== undefined ? editForm.fee_per_installment : student.fee_per_installment;
+          const target_fee_interval_months = editForm.fee_interval_months !== undefined ? editForm.fee_interval_months : student.fee_interval_months;
+          const target_fee_duration_value = editForm.fee_duration_value !== undefined ? editForm.fee_duration_value : student.fee_duration_value;
+          const target_fee_as_long = editForm.fee_as_long_as_continues !== undefined ? editForm.fee_as_long_as_continues : student.fee_as_long_as_continues;
+
+          const feeChanged = 
+            target_fee_per_installment !== student.fee_per_installment ||
+            target_fee_interval_months !== student.fee_interval_months ||
+            target_fee_duration_value !== student.fee_duration_value ||
+            target_fee_as_long !== student.fee_as_long_as_continues;
+
+          if (feeChanged && target_fee_per_installment && target_fee_interval_months) {
+                 const feeAmount = parseFloat(target_fee_per_installment.toString());
+                 const feeGap = parseInt(target_fee_interval_months.toString(), 10);
+                 const numInstallments = target_fee_duration_value ? parseInt(target_fee_duration_value.toString(), 10) : 12; // Use 12 if indefinite
+                 
+                 const { data: existingInvoices } = await supabase
+                     .from('invoices')
+                     .select('id, student_id, status, amount, due_date')
+                     .eq('student_id', student?.student_id || profileCheck.id)
+                     .order('due_date', { ascending: true });
+                 
+                 const existingCount = existingInvoices ? existingInvoices.length : 0;
+                 const startDateStr = existingCount > 0 ? existingInvoices[existingCount - 1].due_date : (student?.enrollment_date || student?.created_at || new Date().toISOString().split('T')[0]);
+                 const startDate = new Date(startDateStr);
+                 
+                 const invoicesToCreate = [];
+                 if (numInstallments > existingCount) {
+                    for (let i = existingCount + 1; i <= numInstallments; i++) {
+                       const dueDate = new Date(startDate);
+                       if (existingCount > 0) {
+                           dueDate.setMonth(dueDate.getMonth() + feeGap * (i - existingCount));
+                       } else {
+                           dueDate.setMonth(dueDate.getMonth() + feeGap * (i - 1));
+                       }
+                       
+                       invoicesToCreate.push({
+                           id: `INV-${student?.student_id || profileCheck.id}-${Date.now()}-${i}`,
+                           student_id: student?.student_id || profileCheck.id,
+                           student_name: editForm.name || student?.name,
+                           category: `Custom Fee - Installment ${i}`,
+                           amount: feeAmount,
+                           due_date: dueDate.toISOString().split('T')[0],
+                           status: 'Unpaid'
+                       });
+                    }
+                    if (invoicesToCreate.length > 0) {
+                        try {
+                           await supabase.from('invoices').insert(invoicesToCreate);
+                        } catch(e) { console.error("Failed to insert diff invoices", e); }
+                    }
+                 } else if (numInstallments < existingCount) {
+                    const diff = existingCount - numInstallments;
+                    const invoicesToDelete = existingInvoices.slice(-diff).filter(inv => inv.status === 'Unpaid' || inv.status === 'Upcoming');
+                    if (invoicesToDelete.length > 0) {
+                        const deleteIds = invoicesToDelete.map(inv => inv.id);
+                        try {
+                           await supabase.from('invoices').delete().in('id', deleteIds);
+                        } catch (e) { console.error("Failed to delete extra invoices", e); }
+                    }
+                 }
+          }
       } else {
         const { error } = await supabase
           .from('students')
@@ -657,9 +730,25 @@ export function StudentProfile() {
         
       setStudent({ ...student, ...editForm } as Student);
       setIsEditing(false);
+      fetchStudentData();
     } catch (err) {
       console.error("Error updating profile:", err);
       alert("Failed to update profile.");
+    }
+  };
+
+  const handleSaveInvoiceEdit = async () => {
+    if (!editingInvoiceId || !supabase) return;
+    try {
+      const amount = parseFloat(editInvoiceAmount);
+      if (isNaN(amount)) return;
+      const { error } = await supabase.from('invoices').update({ amount }).eq('id', editingInvoiceId);
+      if (error) throw error;
+      setEditingInvoiceId(null);
+      setEditInvoiceAmount('');
+      fetchStudentData(true);
+    } catch (e) {
+      console.error("Failed to edit invoice", e);
     }
   };
 
@@ -1065,7 +1154,7 @@ export function StudentProfile() {
                     <CardDescription>Primary information and contact details.</CardDescription>
                   </div>
                   {!isEditing ? (
-                    <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
+                    <Button variant="outline" size="sm" onClick={() => { setIsEditing(true); setEditForm({...student}); }}>
                       Edit Profile
                     </Button>
                   ) : (
@@ -1253,11 +1342,11 @@ export function StudentProfile() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Guardian Email</label>
+                          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">WhatsApp Number</label>
                           <Input 
-                            type="email"
-                            value={editForm.parent1_email || ""} 
-                            onChange={(e) => setEditForm({...editForm, parent1_email: e.target.value})}
+                            type="text"
+                            value={editForm.parent1_whatsapp || ""} 
+                            onChange={(e) => setEditForm({...editForm, parent1_whatsapp: e.target.value})}
                             readOnly={!isEditing} 
                             className={!isEditing ? "bg-muted/10 border-none font-medium pointer-events-none" : "bg-muted/30"} 
                           />
@@ -1270,6 +1359,58 @@ export function StudentProfile() {
                             readOnly={!isEditing} 
                             className={!isEditing ? "bg-muted/10 border-none font-medium pointer-events-none font-mono" : "bg-muted/30 font-mono"} 
                           />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Fee Structure */}
+                    <div className="border-t pt-4">
+                      <h3 className="font-serif text-sm font-bold text-primary mb-4 uppercase tracking-widest">Fee Structure (Billing)</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Per Installment Amount (₹)</label>
+                          <Input 
+                            type="number"
+                            value={editForm.fee_per_installment || ""} 
+                            onChange={(e) => setEditForm({...editForm, fee_per_installment: parseFloat(e.target.value) || null})}
+                            readOnly={!isEditing} 
+                            placeholder="e.g. 5000"
+                            className={!isEditing ? "bg-muted/10 border-none font-medium pointer-events-none font-mono" : "bg-muted/30 font-mono"} 
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Installment Gap (Months)</label>
+                          <Input 
+                            type="number"
+                            value={editForm.fee_interval_months || ""} 
+                            onChange={(e) => setEditForm({...editForm, fee_interval_months: parseInt(e.target.value) || null})}
+                            readOnly={!isEditing} 
+                            placeholder="e.g. 1"
+                            className={!isEditing ? "bg-muted/10 border-none font-medium pointer-events-none" : "bg-muted/30"} 
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Duration (Installments)</label>
+                          <Input 
+                            type="number"
+                            value={editForm.fee_duration_value || ""} 
+                            onChange={(e) => setEditForm({...editForm, fee_duration_value: parseInt(e.target.value) || null})}
+                            readOnly={!isEditing}
+                            placeholder="Leave empty if indefinite"
+                            className={!isEditing ? "bg-muted/10 border-none font-medium pointer-events-none" : "bg-muted/30"} 
+                          />
+                        </div>
+                        <div className="space-y-2 flex items-center pt-8">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              checked={editForm.fee_as_long_as_continues || false}
+                              onChange={(e) => setEditForm({...editForm, fee_as_long_as_continues: e.target.checked})}
+                              disabled={!isEditing}
+                              className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                            />
+                            <span className="text-sm font-medium leading-none">As long as student continues</span>
+                          </label>
                         </div>
                       </div>
                     </div>
@@ -1807,9 +1948,31 @@ export function StudentProfile() {
                                            <span className="text-[10px] text-amber-500 font-semibold italic">Adj: +₹{inst.lateFeeAmount.toLocaleString()} late fee</span>
                                         )}
                                      </div>
-                                     <div className="text-right">
-                                         <div className="text-sm font-black font-mono">₹{inst.totalAmount.toLocaleString()}</div>
-                                         {(inst.computedStatus === 'Partial' || inst.amountDue > 0) && inst.computedStatus !== 'Paid' && (
+                                     <div className="flex flex-col items-end">
+                                        {editingInvoiceId === inst.id ? (
+                                           <div className="flex items-center gap-1">
+                                             <Input 
+                                               type="number"
+                                               value={editInvoiceAmount}
+                                               onChange={(e) => setEditInvoiceAmount(e.target.value)}
+                                               className="h-6 w-20 text-xs px-1 font-mono text-right"
+                                               autoFocus
+                                               onKeyDown={(e) => {
+                                                  if (e.key === 'Enter') handleSaveInvoiceEdit();
+                                                  if (e.key === 'Escape') setEditingInvoiceId(null);
+                                               }}
+                                             />
+                                             <Button size="icon" variant="ghost" className="h-6 w-6 text-success" onClick={handleSaveInvoiceEdit}>
+                                               <CheckCircle2 className="h-3 w-3" />
+                                             </Button>
+                                             <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => setEditingInvoiceId(null)}>
+                                               <X className="h-3 w-3" />
+                                             </Button>
+                                           </div>
+                                        ) : (
+                                           <div className="text-sm font-black font-mono">₹{inst.totalAmount.toLocaleString()}</div>
+                                        )}
+                                         {(inst.computedStatus === 'Partial' || inst.amountDue > 0) && inst.computedStatus !== 'Paid' && editingInvoiceId !== inst.id && (
                                             <div className="text-[9px] font-black text-destructive font-mono">Due: ₹{(inst.amountDue || 0).toLocaleString()}</div>
                                          )}
                                       </div>
@@ -1821,12 +1984,27 @@ export function StudentProfile() {
                                      </div>
                                   )}
 
-                                  <div className="flex justify-between items-center">
+                                  <div className="flex justify-between items-center mt-1">
                                      <div className="flex items-center gap-2">
                                         <span className={`text-[9px] uppercase font-black tracking-tighter px-1.5 py-0.5 rounded ${inst.computedStatus === 'Paid' ? 'bg-success/10 text-success' : inst.computedStatus === 'Overdue' ? 'bg-destructive/10 text-destructive' : inst.computedStatus === 'Partial' ? 'bg-warning/10 text-warning' : 'bg-muted/50 text-muted-foreground'}`}>{inst.computedStatus}</span>
                                         <span className={`text-[8px] font-bold uppercase tracking-widest ${inst.type === 'Incidental' ? 'text-indigo-400' : 'opacity-40'}`}>{inst.type}</span>
                                      </div>
-                                     <span className="text-[9px] opacity-60 font-mono italic">Due {new Date(inst.dueDate + 'T12:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                     <div className="flex items-center gap-2">
+                                        <span className="text-[9px] opacity-60 font-mono italic">Due {new Date(inst.dueDate + 'T12:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                        {inst.computedStatus !== 'Paid' && editingInvoiceId !== inst.id && (
+                                           <Button 
+                                             variant="ghost" 
+                                             size="icon" 
+                                             className="h-5 w-5 opacity-0 group-hover/item:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
+                                             onClick={() => {
+                                                setEditingInvoiceId(inst.id);
+                                                setEditInvoiceAmount(inst.totalAmount.toString());
+                                             }}
+                                           >
+                                              <Edit3 className="h-3 w-3" />
+                                           </Button>
+                                        )}
+                                     </div>
                                   </div>
                                </div>
                             </div>
@@ -2380,18 +2558,30 @@ export function StudentProfile() {
                               </div>
                            </div>
                            <div className="space-y-2">
-                              <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Add Late Fee / Discount</label>
+                              <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Collected Date (For Backdate)</label>
                               <div className="relative">
-                                 <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                  <Input 
-                                    value={adjustmentAmount}
-                                    onChange={(e) => setAdjustmentAmount(e.target.value)}
-                                    className="pl-10 h-10 bg-muted border-border text-sm font-black italic" 
-                                    placeholder="+/- 0" 
+                                    type="date"
+                                    value={collectedDate}
+                                    onChange={(e) => setCollectedDate(e.target.value)}
+                                    className="h-10 bg-muted border-border font-black" 
                                  />
                               </div>
-                              <p className="text-[8px] text-muted-foreground italic">Use '-' for scholarship/discount.</p>
                            </div>
+                        </div>
+                        
+                        <div className="space-y-2">
+                           <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Add Late Fee / Discount</label>
+                           <div className="relative">
+                              <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                              <Input 
+                                 value={adjustmentAmount}
+                                 onChange={(e) => setAdjustmentAmount(e.target.value)}
+                                 className="pl-10 h-10 bg-muted border-border text-sm font-black italic" 
+                                 placeholder="+/- 0" 
+                              />
+                           </div>
+                           <p className="text-[8px] text-muted-foreground italic">Use '-' for scholarship/discount.</p>
                         </div>
 
                         <div className="space-y-2">
@@ -2445,14 +2635,15 @@ export function StudentProfile() {
                                
                                // Secure Backend Logic: Use Supabase database RPC only
                                if (supabase && id) {
-                                 const { data, error } = await supabase.rpc('process_installment_payment_v4', {
+                                 const { data, error } = await supabase.rpc('process_installment_payment_v5', {
                                     p_invoice_id: selectedInvoiceId,
                                     p_student_id: student?.id,
                                     p_amount: amount,
                                     p_payment_method: paymentMethod,
                                     p_reference_id: paymentRefId || `MAN-${Date.now()}`,
                                     p_adjustment_amount: adjustment,
-                                    p_adjustment_title: adjustment > 0 ? 'Late Fee' : 'Discount/Scholarship'
+                                    p_adjustment_title: adjustment > 0 ? 'Late Fee' : 'Discount/Scholarship',
+                                    p_payment_date: collectedDate
                                  });
                                  
                                  if (error) {
@@ -2491,7 +2682,7 @@ export function StudentProfile() {
                                        installment_title: invoices.find(inv => inv.id === selectedInvoiceId)?.title,
                                        payment_method: paymentMethod,
                                        reference_id: paymentRefId || `MAN-${Date.now()}`,
-                                       date: new Date().toLocaleDateString('en-IN', {
+                                       date: new Date(collectedDate || new Date()).toLocaleDateString('en-IN', {
                                          year: 'numeric',
                                          month: 'long',
                                          day: 'numeric'

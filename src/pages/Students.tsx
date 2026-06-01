@@ -113,7 +113,7 @@ export function Students() {
 
   // Unique grades for filter
   const grades = ["All", ...new Set(students.map(s => s.grade))];
-  const statuses = ["All", "Active", "Inactive", "Graduated"];
+  const statuses = ["All", "Active", "Inactive", "Graduated", "Pending"];
 
   // Pagination logic
   const totalItems = sortedStudents.length;

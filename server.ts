@@ -871,6 +871,46 @@ app.get("/api/invoices", (req: Request, res: Response) => {
   res.json({ success: true, count: invoicesStore.length, data: invoicesStore });
 });
 
+// POST /api/fees/override
+app.post("/api/fees/override", async (req: Request, res: Response) => {
+  const { studentId, batchId, invoices } = req.body;
+  
+  if (!studentId || !invoices || !Array.isArray(invoices)) {
+    return res.status(400).json({ error: "Invalid payload for fee override" });
+  }
+
+  if (supabase) {
+    try {
+      // 1. Delete standard trigger-generated invoices for this student in this batch
+      // Alternatively, we safely delete all UNPAID invoices for this student
+      await supabase.from('invoices').delete()
+         .eq('student_id', studentId)
+         .in('status', ['Unpaid', 'Upcoming']);
+         
+      // 2. Insert custom invoices
+      if (invoices.length > 0) {
+        const { error } = await supabase.from('invoices').insert(invoices);
+        if (error) throw error;
+      }
+      
+      // 3. Update the bridge table to reflect current installments count
+      if (batchId) {
+         await supabase.from('student_batches').update({
+            installments_count: invoices.length,
+            amount_per_installment: invoices.length > 0 ? invoices[0].amount : 0
+         }).eq('student_id', studentId).eq('batch_id', batchId);
+      }
+      
+      return res.json({ success: true, message: "Custom fee structure applied securely." });
+    } catch (err: any) {
+      console.error("Database fee override error:", err);
+      return res.status(500).json({ error: "Failed to apply custom fee structure", details: err.message });
+    }
+  }
+
+  res.json({ success: true, message: "Mock override applied" });
+});
+
 // ==================================================
 // Part 2: Razorpay Dynamic QR Code Gateway Integration
 // ==================================================

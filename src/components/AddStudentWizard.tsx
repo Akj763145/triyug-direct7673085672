@@ -15,6 +15,7 @@ const wizardSchema = z.object({
   firstName: z.string().min(2, "Required"),
   lastName: z.string().min(2, "Required"),
   dateOfBirth: z.string().min(1, "DOB is required"),
+  enrollmentDate: z.string().min(1, "Enrollment Date is required"),
   gender: z.string().min(1, "Required"),
   nationality: z.string().default("Domestic"),
   isInternational: z.boolean().default(false),
@@ -22,12 +23,19 @@ const wizardSchema = z.object({
   visaStatus: z.string().optional(),
   grade: z.string().min(1, "Grade is required"),
   batchId: z.string().min(1, "Batch is required"),
-  installmentsCount: z.string().min(1, "Installments count is required"),
+  installmentsCount: z.string().optional(), // Make optional because we have custom fee structure now
+
+  // Fee Structure
+  downpaymentAmount: z.string().optional(),
+  feePerInstallmentAmount: z.string().min(1, "Amount is required"),
+  feeInstallmentGap: z.string().min(1, "Gap (in months) is required"),
+  feeDuration: z.string().optional(),
+  feeAsLongAsContinues: z.boolean().default(false),
 
   parent1Name: z.string().min(2, "Required"),
   parent1Relation: z.string().min(2, "Required"),
   parent1Occupation: z.string().optional(),
-  parent1Email: z.string().email("Invalid email").optional().or(z.literal('')),
+  parent1Whatsapp: z.string().optional().or(z.literal('')),
   parent1Contact: z.string().regex(/^\d{10}$/, "Must be 10 digits"),
 
   addressLine1: z.string().min(5, "Address is required"),
@@ -52,8 +60,9 @@ type WizardFormValues = z.infer<typeof wizardSchema>;
 
 const STEPS = [
   { id: 1, title: "Student details", icon: User },
-  { id: 2, title: "Parent & Address", icon: Users },
-  { id: 3, title: "Documents", icon: FileText },
+  { id: 2, title: "Fee Structure", icon: GraduationCap }, // We will use GraduationCap or FileText, let's use GraduationCap
+  { id: 3, title: "Parent & Address", icon: Users },
+  { id: 4, title: "Documents", icon: FileText },
 ];
 
 interface DocumentDropzoneProps {
@@ -133,6 +142,7 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
     mode: "onChange",
     defaultValues: {
       isInternational: false,
+      enrollmentDate: new Date().toISOString().split('T')[0],
     }
   });
 
@@ -162,9 +172,11 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
   const nextStep = async () => {
     let fieldsToValidate: (keyof WizardFormValues)[] = [];
     if (currentStep === 1) {
-      fieldsToValidate = ['firstName', 'lastName', 'dateOfBirth', 'gender', 'grade', 'batchId', 'installmentsCount'];
+      fieldsToValidate = ['firstName', 'lastName', 'dateOfBirth', 'enrollmentDate', 'gender', 'grade', 'batchId'];
     } else if (currentStep === 2) {
-      fieldsToValidate = ['parent1Name', 'parent1Relation', 'parent1Contact', 'parent1Email', 'parent1Occupation', 'addressLine1', 'city', 'state', 'zipCode'];
+      fieldsToValidate = ['feePerInstallmentAmount', 'feeInstallmentGap'];
+    } else if (currentStep === 3) {
+      fieldsToValidate = ['parent1Name', 'parent1Relation', 'parent1Contact', 'parent1Whatsapp', 'parent1Occupation', 'addressLine1', 'city', 'state', 'zipCode'];
     }
 
     const isStepValid = await trigger(fieldsToValidate);
@@ -177,8 +189,8 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
 
   const onSubmit = async (data: any) => {
     // Prevent implicit submission (like pressing Enter) before the final step
-    if (currentStep !== 3) {
-      if (currentStep < 3) {
+    if (currentStep !== 4) {
+      if (currentStep < 4) {
         nextStep();
       }
       return;
@@ -212,6 +224,7 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
         first_name: data.firstName,
         last_name: data.lastName,
         date_of_birth: data.dateOfBirth,
+        // enrollment_date: data.enrollmentDate, // Removed to fix DB insert error
         gender: data.gender,
         nationality: data.nationality,
         is_international: data.isInternational,
@@ -219,11 +232,11 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
         visa_status: data.visaStatus,
         grade: data.grade,
         batch_id: data.batchId,
-        installments_count: parseInt(data.installmentsCount || "1", 10),
+        installments_count: 1, // Will be overridden manually
         parent1_name: data.parent1Name,
         parent1_relation: data.parent1Relation,
         parent1_occupation: data.parent1Occupation,
-        parent1_email: data.parent1Email,
+        parent1_whatsapp: data.parent1Whatsapp,
         parent1_contact: data.parent1Contact,
         address_line1: data.addressLine1,
         city: data.city,
@@ -247,23 +260,56 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
         status: "Pending"
       };
 
-      const { error } = await api.addStudentProfile(payload);
+      const { data: profileResp, error } = await api.addStudentProfile(payload);
       if (error) throw error;
+      
+      const activeProfileId = profileResp && profileResp.length > 0 ? profileResp[0].id : null;
+      const actualStudentId = profileResp && profileResp.length > 0 ? profileResp[0].student_id || profileResp[0].id : null;
 
-      // Trigger dynamic policy logic to adjust/align invoices with the admin's custom EMI schemes & prices automatically
-      const installmentsCountVal = parseInt(data.installmentsCount || "1", 10);
-      if (installmentsCountVal > 1) {
-        try {
-          await fetch(`/api/batches/${data.batchId}/emi-policies`, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({})
-          });
-        } catch (emiPolicyErr) {
-          console.warn("Could not automatically align newly enrolled student invoices with dynamic EMI policies:", emiPolicyErr);
-        }
+      // 3. Generate Custom Invoices (Override trigger-generated)
+      try {
+         const feeAmount = parseFloat(data.feePerInstallmentAmount);
+         const downpayment = data.downpaymentAmount && data.downpaymentAmount.trim() !== "" ? parseFloat(data.downpaymentAmount) : null;
+         const feeGap = parseInt(data.feeInstallmentGap, 10);
+         const numInstallments = parseInt(data.feeDuration || "12", 10); // Standardize to 12 if indefinite, or we can use duration value.
+         
+         const invoicesToCreate = [];
+         const today = new Date(data.enrollmentDate || new Date());
+         for (let i = 1; i <= numInstallments; i++) {
+            const dueDate = new Date(today);
+            // First installment (i=1) on enrollment date, second after gap, etc.
+            dueDate.setMonth(today.getMonth() + ((i - 1) * feeGap));
+            
+            let amt = feeAmount;
+            let cat = `Custom Fee - Installment ${i}`;
+            if (i === 1 && downpayment !== null) {
+               amt = downpayment;
+               cat = `Downpayment / Installment 1`;
+            }
+
+            invoicesToCreate.push({
+               id: `INV-${actualStudentId || activeProfileId}-${Date.now()}-${i}`,
+               student_id: actualStudentId || activeProfileId,
+               student_name: `${data.firstName} ${data.lastName}`,
+               category: cat,
+               amount: amt,
+               due_date: dueDate.toISOString().split('T')[0],
+               status: 'Unpaid'
+            });
+         }
+
+         // Backend API call to replace invoices
+         await fetch('/api/fees/override', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              studentId: actualStudentId || activeProfileId, 
+              batchId: data.batchId,
+              invoices: invoicesToCreate
+            })
+         });
+      } catch (invoiceErr) {
+         console.warn("Failed to generate custom invoices, fallback to trigger:", invoiceErr);
       }
 
       // Log activity
@@ -352,10 +398,10 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
           <div className="md:col-span-3 p-6 flex flex-col max-h-[85vh] overflow-y-auto">
             {/* Mobile Progress */}
             <div className="md:hidden flex items-center justify-between mb-6">
-               <p className="font-bold text-sm tracking-widest uppercase">Step {currentStep} of 3</p>
+               <p className="font-bold text-sm tracking-widest uppercase">Step {currentStep} of {STEPS.length}</p>
                <div className="flex gap-1">
-                  {[1,2,3].map(s => (
-                    <div key={s} className={`h-1.5 w-6 rounded-full ${s <= currentStep ? 'bg-primary' : 'bg-muted'}`} />
+                  {STEPS.map(s => (
+                    <div key={s.id} className={`h-1.5 w-6 rounded-full ${s.id <= currentStep ? 'bg-primary' : 'bg-muted'}`} />
                   ))}
                </div>
             </div>
@@ -403,12 +449,20 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                         </div>
                       </div>
                       
-                      <div className="grid grid-cols-3 gap-4">
+                      <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1">
                           <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Date of Birth *</label>
                           <Input type="date" {...register("dateOfBirth")} />
                           {errors.dateOfBirth && <span className="text-[10px] text-destructive">{errors.dateOfBirth.message}</span>}
                         </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Enrollment Date *</label>
+                          <Input type="date" {...register("enrollmentDate")} />
+                          {errors.enrollmentDate && <span className="text-[10px] text-destructive">{errors.enrollmentDate.message}</span>}
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1">
                           <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Gender *</label>
                           <select {...register("gender")} className="w-full h-9 px-3 py-1 bg-background border border-input rounded-md text-sm">
@@ -472,16 +526,6 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                           </select>
                           {errors.batchId && <span className="text-[10px] text-destructive">{errors.batchId.message}</span>}
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Installment Plan *</label>
-                          <select {...register("installmentsCount")} className="w-full h-9 px-3 py-1 bg-background border border-input rounded-md text-sm" disabled={!selectedBatch}>
-                            <option value="">Select Plan...</option>
-                            {selectedBatch && Array.from({ length: selectedBatch.max_installments - selectedBatch.min_installments + 1 }, (_, i) => selectedBatch.min_installments + i).map(num => (
-                              <option key={num} value={num}>{num} Installment(s)</option>
-                            ))}
-                          </select>
-                          {errors.installmentsCount && <span className="text-[10px] text-destructive">{errors.installmentsCount.message}</span>}
-                        </div>
                       </div>
 
                       {/* Conditional logic: International Student */}
@@ -526,8 +570,59 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                     </div>
                   )}
 
-                  {/* STEP 2: Parent & Address */}
+                  {/* STEP 2: Fee Structure */}
                   {currentStep === 2 && (
+                    <div className="space-y-5">
+                      <div className="space-y-4 border-b border-muted/20 pb-4">
+                        <h3 className="font-bold text-sm tracking-tight">Custom Fee Structure</h3>
+                        <p className="text-sm text-muted-foreground">Define a particular fee breakdown for this specific student.</p>
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Downpayment (Optional)</label>
+                            <Input type="number" {...register("downpaymentAmount")} placeholder="e.g. 10000" />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Regular Installment Amount *</label>
+                            <Input type="number" {...register("feePerInstallmentAmount")} placeholder="e.g. 5000" />
+                            {errors.feePerInstallmentAmount && <span className="text-[10px] text-destructive">{errors.feePerInstallmentAmount.message}</span>}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 mt-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Per Installment Gap (Months) *</label>
+                            <Input type="number" {...register("feeInstallmentGap")} placeholder="e.g. 1" />
+                            {errors.feeInstallmentGap && <span className="text-[10px] text-destructive">{errors.feeInstallmentGap.message}</span>}
+                          </div>
+                           <div className="space-y-1">
+                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Duration (Total Installments)</label>
+                            <Input type="number" {...register("feeDuration")} placeholder="Leave empty if indefinite" />
+                          </div>
+                          
+                          <div className="flex items-center space-x-2 pt-6">
+                            <Controller
+                              name="feeAsLongAsContinues"
+                              control={control}
+                              render={({ field }) => (
+                                <Checkbox 
+                                  id="feeAsLongAsContinues" 
+                                  checked={field.value} 
+                                  onCheckedChange={field.onChange} 
+                                />
+                              )}
+                            />
+                            <label htmlFor="feeAsLongAsContinues" className="text-sm font-medium leading-none">
+                              As long as student continues
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* STEP 3: Parent & Address */}
+                  {currentStep === 3 && (
                     <div className="space-y-5">
                       <div className="space-y-4 border-b border-muted/20 pb-4">
                         <h3 className="font-bold text-sm tracking-tight">Primary Parent / Guardian</h3>
@@ -548,9 +643,9 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                             {errors.parent1Contact && <span className="text-[10px] text-destructive">{errors.parent1Contact.message}</span>}
                           </div>
                           <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Email Address</label>
-                            <Input type="email" {...register("parent1Email")} placeholder="parent@example.com" />
-                            {errors.parent1Email && <span className="text-[10px] text-destructive">{errors.parent1Email.message}</span>}
+                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">WhatsApp Number</label>
+                            <Input type="text" {...register("parent1Whatsapp")} placeholder="+91..." />
+                            {errors.parent1Whatsapp && <span className="text-[10px] text-destructive">{errors.parent1Whatsapp.message}</span>}
                           </div>
                           <div className="space-y-1">
                             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Occupation</label>
@@ -587,8 +682,8 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                     </div>
                   )}
 
-                  {/* STEP 3: Documents */}
-                  {currentStep === 3 && (
+                  {/* STEP 4: Documents */}
+                  {currentStep === 4 && (
                     <div className="space-y-5">
                       <p className="text-sm text-muted-foreground mb-4 border-b border-muted/20 pb-4">
                         Please upload clear digital copies of the requested documents. Accepted formats are PDF, JPEG, and PNG (Max 5MB each).
@@ -616,7 +711,7 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                   <ChevronLeft className="mr-2 h-4 w-4" /> Back
                 </Button>
                 
-                {currentStep < 3 ? (
+                {currentStep < STEPS.length ? (
                   <Button type="button" onClick={nextStep}>
                     Next Step <ChevronRight className="ml-2 h-4 w-4" />
                   </Button>

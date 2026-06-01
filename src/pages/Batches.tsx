@@ -430,8 +430,8 @@ export default function Batches() {
     
     if (field === 'totalBatchAmount') {
       const amt = Number(value);
-      if (!value || isNaN(amt) || amt <= 0) {
-        tempErrors.totalBatchAmount = 'Fee anchor must represent a non-zero positive currency field.';
+      if (value && (isNaN(amt) || amt < 0)) {
+        tempErrors.totalBatchAmount = 'Fee anchor must represent a non-negative currency field.';
       } else {
         delete tempErrors.totalBatchAmount;
       }
@@ -492,8 +492,8 @@ export default function Batches() {
     }
     
     const amt = Number(formData.totalBatchAmount);
-    if (!formData.totalBatchAmount || isNaN(amt) || amt <= 0) {
-      errors.totalBatchAmount = 'Fee anchor must represent a non-zero positive currency field.';
+    if (formData.totalBatchAmount && (isNaN(amt) || amt < 0)) {
+      errors.totalBatchAmount = 'Fee anchor must represent a non-negative currency field.';
     }
     
     const min = parseInt(formData.minInstallments);
@@ -1034,12 +1034,12 @@ export default function Batches() {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="space-y-2">
-                        <label className="text-xs font-bold text-foreground">Total Fee Structure <span className="text-red-500">*</span></label>
+                        <label className="text-xs font-bold text-foreground">Total Fee Structure</label>
                         <div className="relative">
                           <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-muted-foreground/70 font-bold">₹</div>
                           <Input 
                             type="number"
-                            placeholder="45000"
+                            placeholder="Optional. e.g. 45000"
                             value={formData.totalBatchAmount}
                             onChange={(e) => handleInputChange('totalBatchAmount', e.target.value)}
                             className={`pl-8 h-11 bg-background transition-all focus-visible:ring-primary/20 ${formErrors.totalBatchAmount ? 'border-red-500 focus-visible:border-red-500 ring-2 ring-red-500/10' : 'border-input'}`}

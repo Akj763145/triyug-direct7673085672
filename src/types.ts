@@ -31,6 +31,11 @@ export interface Student {
   status: "Active" | "Graduated";
   photo_url?: string;
   
+  fee_per_installment?: number | null;
+  fee_interval_months?: number | null;
+  fee_duration_value?: number | null;
+  fee_as_long_as_continues?: boolean;
+
   // Demographics
   first_name?: string;
   last_name?: string;
@@ -49,7 +54,7 @@ export interface Student {
   parent1_relation?: string;
   parent1_occupation?: string;
   parent1_income?: string;
-  parent1_email?: string;
+  parent1_whatsapp?: string;
   parent1_contact?: string;
 
   // Parent/Guardian 2
