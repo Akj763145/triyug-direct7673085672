@@ -135,6 +135,7 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [availableBatches, setAvailableBatches] = useState<any[]>([]);
   const [availableGrades, setAvailableGrades] = useState<any[]>([]);
+  const [feeTab, setFeeTab] = useState<string | null>(null);
 
   React.useEffect(() => {
     (async () => {
@@ -161,6 +162,7 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
     defaultValues: {
       isInternational: false,
       enrollmentDate: new Date().toISOString().split('T')[0],
+      targetEndMonth: "2027-02-28",
     }
   });
 
@@ -354,7 +356,7 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                            id: `INV-${actualStudentId || activeProfileId}-${Date.now()}-${invoiceIndex++}`,
                            student_id: actualStudentId || activeProfileId,
                            student_name: `${data.firstName} ${data.lastName}`,
-                           category: `${monthName} Installment`,
+                           category: `${monthName} Fee`,
                            amount: parseFloat(emiAmount.toFixed(2)),
                            due_date: idue.toISOString().split('T')[0],
                            status: 'Unpaid'
@@ -667,113 +669,126 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                         <h3 className="font-bold text-sm tracking-tight">Tuition Fee Setup</h3>
                         <p className="text-sm text-muted-foreground">Define the program fee structure for this student admission.</p>
                         
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total Course Fee *</label>
-                            <Input type="number" {...register("feePerInstallmentAmount")} placeholder="e.g. 50000" />
-                            {errors.feePerInstallmentAmount && <span className="text-[10px] text-destructive">{errors.feePerInstallmentAmount.message}</span>}
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Initial Downpayment / Registration Fee</label>
-                            <Input type="number" {...register("downpaymentAmount")} placeholder="Optional (e.g. 10000)" />
-                          </div>
-                        </div>
-
-                        <Tabs defaultValue="monthly" className="w-full mt-6">
+                        <Tabs value={feeTab || undefined} onValueChange={(val) => {
+                          setFeeTab(val);
+                          setValue("divideRemaining", val === "monthly");
+                        }} className="w-full mt-6">
                           <TabsList className="grid w-full grid-cols-2">
                              <TabsTrigger value="monthly">Monthly / Custom EMIs</TabsTrigger>
                              <TabsTrigger value="annual">Annual Fee System</TabsTrigger>
                           </TabsList>
-                          
-                          <TabsContent value="monthly" className="pt-4 border border-border/50 rounded-lg p-4 mt-2 bg-card">
-                             <div className="space-y-4">
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                  <input 
-                                    type="checkbox" 
-                                    {...register("divideRemaining")}
-                                    className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
-                                  />
-                                  <span className="text-sm font-medium leading-none">Divide remaining amount into EMIs?</span>
-                                </label>
-                                {watch("divideRemaining") && (
-                                  <div className="grid grid-cols-2 gap-4 mt-3">
-                                    <div className="space-y-1">
-                                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Frequency *</label>
-                                      <select 
-                                         {...register("emiFrequency")}
-                                         className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                                      >
-                                         <option value="Monthly">Monthly</option>
-                                         <option value="Quarterly">Quarterly</option>
-                                         <option value="Half-Yearly">Half-Yearly</option>
-                                         <option value="Annually">Annually</option>
-                                      </select>
-                                    </div>
-                                    <div className="space-y-1">
-                                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Target End Date *</label>
-                                      <Input type="date" {...register("targetEndMonth")} />
-                                    </div>
-                                    <p className="text-[10px] text-muted-foreground mt-1 col-span-2">The remaining balance will be divided equally into each term between the enrollment date and this month.</p>
-                                  </div>
-                                )}
-                                
-                                {watch("divideRemaining") && watch("targetEndMonth") && parseFloat(watch("feePerInstallmentAmount")) > 0 && (
-                                   <FeeEmiPreview 
-                                     totalCourseFee={parseFloat(watch("feePerInstallmentAmount")) || 0}
-                                     downpayment={parseFloat(watch("downpaymentAmount")) || 0}
-                                     targetEndMonth={watch("targetEndMonth")}
-                                     enrollmentDate={watch("enrollmentDate")}
-                                     emiFrequency={watch("emiFrequency")}
-                                     onEmisChange={(emis) => setValue("customEmis", emis)}
-                                   />
-                                )}
-                             </div>
-                          </TabsContent>
-                          
-                          <TabsContent value="annual" className="pt-4 border border-border/50 rounded-lg p-4 mt-2 bg-card">
-                             <div className="space-y-4">
-                                <div className="space-y-1 sm:w-2/3">
-                                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">EMI Frequency *</label>
-                                  <div className="flex gap-2">
-                                     <select 
-                                        {...register("annualEmiFrequency")}
-                                        className="flex h-9 w-40 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                                     >
-                                        <option value="Monthly">Monthly</option>
-                                        <option value="Quarterly">Quarterly</option>
-                                        <option value="Half-Yearly">Half-Yearly</option>
-                                        <option value="Annually">Annually</option>
-                                        <option value="Custom">Custom</option>
-                                     </select>
-                                     
-                                     {watch("annualEmiFrequency") === "Custom" && (
-                                       <>
-                                         <div className="flex flex-col">
-                                            <Input type="number" {...register("annualEmiCustomTerms")} placeholder="# Emis" className="w-20 font-mono h-9" />
-                                            <span className="text-[9px] text-muted-foreground mt-1">Total EMIs</span>
-                                         </div>
-                                         <div className="flex flex-col">
-                                            <Input type="number" {...register("annualEmiCustomGap")} placeholder="Gap" className="w-20 font-mono h-9" />
-                                            <span className="text-[9px] text-muted-foreground mt-1">Gap (Months)</span>
-                                         </div>
-                                       </>
+                                                   {feeTab ? (
+                            <div className="space-y-6 mt-6">
+                              <TabsContent value="monthly" className="pt-0 border border-border/50 rounded-lg p-4 bg-card mt-0 space-y-4">
+                                 <div className="grid grid-cols-2 gap-4">
+                                   <div className="space-y-1">
+                                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Monthly Fee Amount *</label>
+                                     <Input 
+                                       type="number" 
+                                       {...register("feePerInstallmentAmount")} 
+                                       placeholder="e.g. 5000" 
+                                     />
+                                     {errors.feePerInstallmentAmount && (
+                                       <span className="text-[10px] text-destructive">{errors.feePerInstallmentAmount.message}</span>
                                      )}
-                                  </div>
-                                </div>
-                                
-                                {!watch("divideRemaining") && parseFloat(watch("feePerInstallmentAmount")) > 0 && (
-                                   <AnnualEmiPolicyMaker 
-                                     totalCourseFee={parseFloat(watch("feePerInstallmentAmount")) || 0}
-                                     downpayment={parseFloat(watch("downpaymentAmount")) || 0}
-                                     frequency={watch("annualEmiFrequency")}
-                                     customTerms={watch("annualEmiCustomTerms") ? parseInt(watch("annualEmiCustomTerms")) : undefined}
-                                     customGap={watch("annualEmiCustomGap") ? parseInt(watch("annualEmiCustomGap")) : undefined}
-                                     enrollmentDate={watch("enrollmentDate")}
-                                     onPolicyChange={(emis) => setValue("annualEmis", emis)}
-                                   />
-                                )}
-                             </div>
-                          </TabsContent>
+                                   </div>
+                                   <div className="space-y-1">
+                                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Target End Date *</label>
+                                     <Input 
+                                       type="date" 
+                                       {...register("targetEndMonth")} 
+                                     />
+                                   </div>
+                                 </div>
+
+                                 {watch("targetEndMonth") && (
+                                   <div className="p-3 bg-muted/10 border border-muted/20 rounded-md text-xs font-medium text-muted-foreground flex justify-between items-center">
+                                     <span>Calculated duration:</span>
+                                     <span className="font-bold text-foreground text-sm">
+                                       {(() => {
+                                         const startDate = new Date(watch("enrollmentDate") || new Date().toISOString().split('T')[0]);
+                                         const endDate = new Date(watch("targetEndMonth") || "2027-02-28");
+                                         let monthsDiff = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth());
+                                         return monthsDiff <= 0 ? 1 : monthsDiff + 1;
+                                       })()}{' '}
+                                       Months / Installments
+                                     </span>
+                                   </div>
+                                 )}
+
+                                 {parseFloat(watch("feePerInstallmentAmount")) > 0 && watch("targetEndMonth") && (
+                                    <FeeEmiPreview 
+                                      isMonthlyMode={true}
+                                      monthlyFeeAmount={parseFloat(watch("feePerInstallmentAmount")) || 0}
+                                      targetEndMonth={watch("targetEndMonth") || "2027-02-28"}
+                                      enrollmentDate={watch("enrollmentDate")}
+                                      onEmisChange={(emis) => setValue("customEmis", emis)}
+                                    />
+                                 )}
+                              </TabsContent>
+                              
+                              <TabsContent value="annual" className="pt-0 border border-border/50 rounded-lg p-4 bg-card mt-0 space-y-4">
+                                 <div className="grid grid-cols-2 gap-4 border border-border/50 rounded-lg p-4 bg-muted/10 mb-2">
+                                   <div className="space-y-1">
+                                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total Course Fee *</label>
+                                     <Input type="number" {...register("feePerInstallmentAmount")} placeholder="e.g. 50000" />
+                                     {errors.feePerInstallmentAmount && <span className="text-[10px] text-destructive">{errors.feePerInstallmentAmount.message}</span>}
+                                   </div>
+                                   <div className="space-y-1">
+                                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Initial Downpayment / Registration Fee</label>
+                                     <Input type="number" {...register("downpaymentAmount")} placeholder="Optional (e.g. 10000)" />
+                                   </div>
+                                 </div>
+
+                                 <div className="space-y-4 pt-2">
+                                    <div className="space-y-1 sm:w-2/3">
+                                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">EMI Frequency *</label>
+                                      <div className="flex gap-2">
+                                         <select 
+                                            {...register("annualEmiFrequency")}
+                                            className="flex h-9 w-40 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                         >
+                                            <option value="Monthly">Monthly</option>
+                                            <option value="Quarterly">Quarterly</option>
+                                            <option value="Half-Yearly">Half-Yearly</option>
+                                            <option value="Annually">Annually</option>
+                                            <option value="Custom">Custom</option>
+                                         </select>
+                                         
+                                         {watch("annualEmiFrequency") === "Custom" && (
+                                           <>
+                                             <div className="flex flex-col">
+                                                <Input type="number" {...register("annualEmiCustomTerms")} placeholder="# Emis" className="w-20 font-mono h-9" />
+                                                <span className="text-[9px] text-muted-foreground mt-1">Total EMIs</span>
+                                             </div>
+                                             <div className="flex flex-col">
+                                                <Input type="number" {...register("annualEmiCustomGap")} placeholder="Gap" className="w-20 font-mono h-9" />
+                                                <span className="text-[9px] text-muted-foreground mt-1">Gap (Months)</span>
+                                             </div>
+                                           </>
+                                         )}
+                                      </div>
+                                    </div>
+                                    
+                                    {!watch("divideRemaining") && parseFloat(watch("feePerInstallmentAmount")) > 0 && (
+                                       <AnnualEmiPolicyMaker 
+                                         totalCourseFee={parseFloat(watch("feePerInstallmentAmount")) || 0}
+                                         downpayment={parseFloat(watch("downpaymentAmount")) || 0}
+                                         frequency={watch("annualEmiFrequency")}
+                                         customTerms={watch("annualEmiCustomTerms") ? parseInt(watch("annualEmiCustomTerms")) : undefined}
+                                         customGap={watch("annualEmiCustomGap") ? parseInt(watch("annualEmiCustomGap")) : undefined}
+                                         enrollmentDate={watch("enrollmentDate")}
+                                         onPolicyChange={(emis) => setValue("annualEmis", emis)}
+                                       />
+                                    )}
+                                 </div>
+                              </TabsContent>
+                            </div>
+                          ) : (
+                            <div className="py-12 text-center text-sm text-slate-500 border border-dashed border-gray-250 rounded-lg bg-slate-50/50 mt-6">
+                              Please select either <strong className="text-slate-800">Monthly / Custom EMIs</strong> or <strong className="text-slate-800">Annual Fee System</strong> to begin setting up tuition fees.
+                            </div>
+                          )}
                         </Tabs>
                       </div>
                     </div>

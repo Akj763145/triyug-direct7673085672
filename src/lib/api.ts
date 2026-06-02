@@ -209,7 +209,7 @@ export const api = {
       id: inv.id,
       studentId: inv.student_id,
       studentName: inv.student_name,
-      title: inv.title || inv.category,
+      title: (inv.title || inv.category || 'Invoice').replace(/Installment/g, 'Fee').replace(/installment/g, 'fee'),
       category: inv.category,
       amount: inv.amount,
       dueDate: inv.due_date,

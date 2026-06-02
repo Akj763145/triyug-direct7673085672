@@ -367,7 +367,7 @@ export function StudentProfile() {
       let derived_dur: number | undefined = undefined;
       
       if (!invoiceError && invoiceData && invoiceData.length > 0) {
-          const primaryInvs = invoiceData.filter((i: any) => (i.category && i.category.includes('Installment')) || (i.title && i.title.includes('Installment')) || i.type === 'Primary').sort((a:any, b:any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+          const primaryInvs = invoiceData.filter((i: any) => (i.category && (i.category.includes('Installment') || i.category.includes('Fee'))) || (i.title && (i.title.includes('Installment') || i.title.includes('Fee'))) || i.type === 'Primary').sort((a:any, b:any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
           if (primaryInvs.length > 0) {
               derived_dur = primaryInvs.length;
               derived_fee = Number(primaryInvs[0].amount);
@@ -428,16 +428,20 @@ export function StudentProfile() {
 
       if (!invoiceError && invoiceData) {
         // Ensure proper camelCase mapping if needed by UI
-        let mappedInvoices = invoiceData.map(inv => ({
-          ...inv,
-          id: inv.id,
-          studentId: inv.student_id,
-          title: inv.category || 'Invoice',
-          totalAmount: Number(inv.amount),
-          dueDate: inv.due_date,
-          status: inv.status || 'Upcoming',
-          type: 'Primary'
-        }));
+        let mappedInvoices = invoiceData.map(inv => {
+          const rawTitle = inv.category || 'Invoice';
+          const cleanTitle = rawTitle.replace(/Installment/g, 'Fee').replace(/installment/g, 'fee');
+          return {
+            ...inv,
+            id: inv.id,
+            studentId: inv.student_id,
+            title: cleanTitle,
+            totalAmount: Number(inv.amount),
+            dueDate: inv.due_date,
+            status: inv.status || 'Upcoming',
+            type: 'Primary'
+          };
+        });
 
         // --- SELF-HEALING LOGIC FOR LEGACY SEQUENTIAL DATES ---
         try {
@@ -450,7 +454,7 @@ export function StudentProfile() {
                  const primaryInvs = mappedInvoices
                    .filter(i => {
                      const hasBatchName = i.title.includes(batch.name);
-                     const isGenericInstallment = batches.length === 1 && i.title.includes('Installment');
+                     const isGenericInstallment = batches.length === 1 && (i.title.includes('Installment') || i.title.includes('Fee'));
                      return (hasBatchName || isGenericInstallment) && !i.title.toLowerCase().includes('incidental');
                    })
                    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
@@ -704,7 +708,7 @@ export function StudentProfile() {
                      .delete()
                      .eq('student_id', student?.student_id || profileCheck.id)
                      .in('status', ['Unpaid', 'Upcoming'])
-                     .or('category.eq.Total Tuition Fee,category.eq.Remaining Course Fee Balance,category.like.Course Fee Installment%,category.like.%Installment');
+                     .or('category.eq.Total Tuition Fee,category.eq.Remaining Course Fee Balance,category.like.Course Fee Installment%,category.like.%Installment,category.like.%Fee');
 
                  const todayStr = new Date().toISOString().split('T')[0];
                  const invoicesToCreate = [];
@@ -1090,7 +1094,7 @@ export function StudentProfile() {
   let paymentBasisAmount = installmentInvoices[0]?.totalAmount || totalNetInvoiceAmount;
   
   if (installmentInvoices.length > 1) {
-    paymentBasisText = `${installmentInvoices.length} Installments`;
+    paymentBasisText = `${installmentInvoices.length} Fees`;
     paymentBasisAmount = installmentInvoices[0].totalAmount;
     
     const labels = installmentInvoices.map(i => i.category?.toLowerCase() || "");
@@ -1118,6 +1122,115 @@ export function StudentProfile() {
   } else {
     formattedPaymentBasis = `LUMP SUM ₹${paymentBasisAmount.toLocaleString()}`;
   }
+
+  const formatLedgerDate = (dateStr: string) => {
+    if (!dateStr) return 'N/A';
+    const cleanDateStr = dateStr.includes('T') ? dateStr : `${dateStr}T12:00:00`;
+    const d = new Date(cleanDateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  // Dynamically compute the ledger entries chronologically
+  const compiledLedgerRows = (() => {
+    const rawEntries: Array<{
+      date: string;
+      preciseDate: Date;
+      particulars: string;
+      dr: number | null;
+      cr: number | null;
+      rawTxn?: any;
+      rawInvoice?: any;
+    }> = [];
+
+    // 1. Every invoice in computedInvoices is a row.
+    computedInvoices.forEach(inv => {
+      rawEntries.push({
+        date: inv.dueDate,
+        preciseDate: new Date(inv.dueDate.includes('T') ? inv.dueDate : inv.dueDate + 'T12:00:00'),
+        particulars: (inv.title || inv.category || 'Invoice Due').replace(/Installment/g, 'Fee').replace(/installment/g, 'fee'),
+        dr: inv.amountDue > 0 ? inv.amountDue : null,
+        cr: null,
+        rawInvoice: inv,
+      });
+    });
+
+    // 2. Successful transactions that are NOT linked to any invoice.
+    transactions
+      .filter(t => t.status === 'Success' || t.status === 'success')
+      .filter(t => !t.invoiceId && !t.invoice_id)
+      .forEach(t => {
+        const isLateFee = t.type === 'Late Fee' || 
+                          t.category === 'Late Fee' ||
+                          t.description?.toLowerCase().includes('late fee') || 
+                          t.description?.toLowerCase().includes('penalty');
+                          
+        const isDiscount = t.type === 'Discount' || 
+                           t.category === 'Discount' || 
+                           t.description?.toLowerCase().includes('discount') || 
+                           t.description?.toLowerCase().includes('scholarship') ||
+                           Number(t.amount) < 0;
+
+        const cleanDate = t.date || '';
+
+        if (isLateFee) {
+          rawEntries.push({
+            date: cleanDate,
+            preciseDate: new Date(cleanDate.includes('T') ? cleanDate : cleanDate + 'T12:00:00'),
+            particulars: t.description || 'Late Fee Penalty',
+            dr: Math.abs(Number(t.amount)),
+            cr: null,
+            rawTxn: t
+          });
+        } else if (isDiscount) {
+          rawEntries.push({
+            date: cleanDate,
+            preciseDate: new Date(cleanDate.includes('T') ? cleanDate : cleanDate + 'T12:00:00'),
+            particulars: t.description || 'Discount Applied',
+            dr: null,
+            cr: Math.abs(Number(t.amount)),
+            rawTxn: t
+          });
+        } else {
+          // Standard Payment
+          rawEntries.push({
+            date: cleanDate,
+            preciseDate: new Date(cleanDate.includes('T') ? cleanDate : cleanDate + 'T12:00:00'),
+            particulars: t.description || `Payment Received via ${t.paymentMethod || 'SYSTEM'}`,
+            dr: null,
+            cr: Number(t.amount),
+            rawTxn: t
+          });
+        }
+      });
+
+    // Sort chronologically (oldest first)
+    const sorted = [...rawEntries].sort((a, b) => {
+      const timeA = a.preciseDate.getTime();
+      const timeB = b.preciseDate.getTime();
+      if (timeA !== timeB) return timeA - timeB;
+      
+      // If same date, invoices first
+      if (a.rawInvoice && !b.rawInvoice) return -1;
+      if (!a.rawInvoice && b.rawInvoice) return 1;
+      return 0;
+    });
+
+    // Calculate running balance
+    let balance = 0;
+    return sorted.map(row => {
+      if (row.dr !== null) {
+        balance += row.dr;
+      }
+      if (row.cr !== null) {
+        balance -= row.cr;
+      }
+      return {
+        ...row,
+        balance
+      };
+    });
+  })();
 
   const attendanceRate = (attendance.filter(a => a.status === 'Present').length / attendance.length) * 100;
   const submissionRate = (assignments.filter(a => a.status !== 'Pending').length / assignments.length) * 100;
@@ -1965,298 +2078,364 @@ export function StudentProfile() {
                  </div>
               </CardContent>
            </Card>
-        </TabsContent>
+         </TabsContent>
 
-        {/* Tab: Financial Ledger */}
-        <TabsContent value="ledger" className="space-y-6 mt-0 animate-in fade-in slide-in-from-right-4 duration-300">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
-             <div>
-                <h2 className="text-xl font-bold flex items-center gap-2">
-                   <Wallet className="h-5 w-5 text-primary" /> Financial Overview
-                </h2>
-                <p className="text-xs text-muted-foreground">Manage fees, installments and transaction history</p>
-             </div>
-             <Button 
-               className="bg-cyan-500 hover:bg-cyan-600 text-foreground shadow-[0_0_15px_rgba(6,182,212,0.4)] animate-pulse"
-               onClick={() => setIsPaymentDrawerOpen(true)}
-             >
-                <Plus className="mr-2 h-4 w-4" /> Collect Payment
-             </Button>
-          </div>
+         {/* Tab: Financial Ledger */}
+        <TabsContent value="ledger" className="mt-0 animate-in fade-in slide-in-from-right-4 duration-300">
+           <div className="bg-white border border-gray-200 rounded-sm p-8 shadow-sm space-y-8">
+              {/* Summary Header */}
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-gray-200 pb-8">
+                 <div className="flex flex-wrap items-center gap-8">
+                    <div>
+                       <p className="text-xs text-gray-500 uppercase tracking-widest mb-1">Total Batch Fee</p>
+                       <p className="text-3xl font-light text-slate-900 tabular-nums">
+                          ₹{totalNetInvoiceAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                       </p>
+                    </div>
+                    <div>
+                       <p className="text-xs text-gray-500 uppercase tracking-widest mb-1">Total Paid</p>
+                       <p className="text-3xl font-light text-emerald-600 tabular-nums">
+                          ₹{totalPaid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                       </p>
+                    </div>
+                    <div>
+                       <p className="text-xs text-gray-500 uppercase tracking-widest mb-1">Total Due</p>
+                       <p className="text-3xl font-light text-red-600 tabular-nums">
+                          ₹{totalDue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                       </p>
+                    </div>
+                 </div>
+                 <Button 
+                   className="bg-teal-600 hover:bg-teal-700 text-white rounded px-6 py-5 text-sm font-medium tracking-wide shadow-none transition-colors"
+                   onClick={() => setIsPaymentDrawerOpen(true)}
+                 >
+                    [+ Collect Payment]
+                 </Button>
+              </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* 1. TOTAL BATCH AMOUNT */}
-            <Card className="border-muted/20 bg-card/40 backdrop-blur-md relative overflow-hidden group">
-               <div className="absolute top-0 left-0 w-1 bg-primary h-full"></div>
-               <CardHeader className="pb-2">
-                  <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
-                    <Wallet className="h-3 w-3" /> TOTAL BATCH AMOUNT
-                  </CardTitle>
-               </CardHeader>
-               <CardContent className="space-y-6">
-                  {/* Batch & Payment Basis Details */}
-                  <div className="flex flex-wrap items-center gap-2 mt-1">
-                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-muted/40 border border-muted/20">
-                        <GraduationCap className="h-3 w-3 text-muted-foreground" />
-                        <span className="text-[10px] font-black uppercase tracking-widest text-foreground">
-                           BATCH: {student?.grade || 'UNASSIGNED'}
-                        </span>
-                     </div>
-                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-primary/10 border border-primary/20 text-primary">
-                        <Calendar className="h-3 w-3" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">
-                           {formattedPaymentBasis}
-                        </span>
-                     </div>
-                  </div>
+              {/* Monthly Basis Subscription Alert */}
+              {paymentBasisText === "Monthly Basis" ? (
+                 <div className="p-4 bg-teal-50 border border-teal-200 rounded-sm text-teal-900 text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                    <div className="flex items-center gap-3">
+                       <Calendar className="h-5 w-5 text-teal-600 flex-shrink-0" />
+                       <div>
+                          <p className="font-semibold text-teal-950">Active Fee Plan</p>
+                          <p className="text-xs text-teal-700">This student purchased this batch on a monthly fee program.</p>
+                       </div>
+                    </div>
+                    <div className="text-left sm:text-right">
+                       <p className="text-[10px] text-teal-600 uppercase tracking-widest font-bold leading-none mb-1">Monthly Cost basis</p>
+                       <p className="text-base font-black text-teal-950 tabular-nums">
+                          ₹{paymentBasisAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/- MONTH
+                       </p>
+                    </div>
+                 </div>
+              ) : (
+                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-sm text-slate-800 text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                    <div className="flex items-center gap-3">
+                       <GraduationCap className="h-5 w-5 text-slate-600 flex-shrink-0" />
+                       <div>
+                          <p className="font-semibold text-slate-950">Payment Setup Status</p>
+                          <p className="text-xs text-slate-600">The billing schedule contract frequency has been established.</p>
+                       </div>
+                    </div>
+                    <div className="text-left sm:text-right">
+                       <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold leading-none mb-1">Billing frequency</p>
+                       <p className="text-base font-black text-slate-900">
+                          {formattedPaymentBasis}
+                       </p>
+                    </div>
+                 </div>
+              )}
 
-                  <div className="flex items-center justify-between pt-2">
-                     <div>
-                        <div className="text-4xl font-black italic tracking-tighter text-foreground decoration-primary/30 underline underline-offset-8 decoration-2">₹{totalNetInvoiceAmount.toLocaleString()}</div>
-                        <p className="text-[9px] text-muted-foreground uppercase font-black tracking-widest mt-3 opacity-70">Total Net Amount (after adjustments)</p>
-                     </div>
-                     <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20 shadow-[0_0_20px_rgba(var(--primary),0.15)] group-hover:scale-110 transition-transform duration-500">
-                        <IndianRupee className="h-8 w-8" />
-                     </div>
-                  </div>
+              {/* Bank Statement Ledger Table */}
+               <div className="w-full overflow-x-auto">
+                  <table className="w-full text-sm text-slate-900 whitespace-nowrap">
+                    <thead>
+                       <tr className="border-b border-gray-250 text-left">
+                          <th className="py-3 px-4 font-semibold text-gray-500 uppercase tracking-wider text-xs w-[12%]">Date</th>
+                          <th className="py-3 px-4 font-semibold text-gray-500 uppercase tracking-wider text-xs">Particulars &amp; Details</th>
+                          <th className="py-3 px-4 text-right font-semibold text-gray-500 uppercase tracking-wider text-xs w-[15%]">Overdue / Pending</th>
+                       </tr>
+                    </thead>
+                    <tbody>
+                       {compiledLedgerRows.length === 0 ? (
+                          <tr>
+                             <td colSpan={3} className="py-12 text-center text-gray-400 italic">
+                                No financial entries found for this student.
+                             </td>
+                          </tr>
+                       ) : (
+                          compiledLedgerRows.map((row, index) => {
+                             const isInvoice = !!row.rawInvoice;
+                             const isEditingThisInvoice = isInvoice && editingInvoiceId === row.rawInvoice.id;
 
-                  <div className="grid grid-cols-3 gap-3">
-                     <div className="p-3 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 group-hover:bg-emerald-500/10 transition-colors">
-                        <p className="text-[9px] font-black uppercase text-emerald-600 tracking-widest mb-1">Total Paid</p>
-                        <p className="text-lg font-black text-emerald-700">₹{totalPaid.toLocaleString()}</p>
-                     </div>
-                     <div className="p-3 rounded-2xl bg-amber-500/5 border border-amber-500/10 group-hover:bg-amber-500/10 transition-colors">
-                        <p className="text-[9px] font-black uppercase text-amber-600 tracking-widest mb-1">Discounts</p>
-                        <p className="text-lg font-black text-amber-700">₹{totalDiscounts.toLocaleString()}</p>
-                     </div>
-                     <div className="p-3 rounded-2xl bg-red-500/5 border border-red-500/10 group-hover:bg-red-500/10 transition-colors">
-                        <p className="text-[9px] font-black uppercase text-red-600 tracking-widest mb-1">Total Due</p>
-                        <p className="text-lg font-black text-red-700">₹{totalDue.toLocaleString()}</p>
-                     </div>
-                  </div>
+                             let rowDueDate: string | null = null;
+                             let rowDueAmount: number | null = null;
+                             let rowPaidAmount: number | null = null;
+                             let rowPayDate: string | null = null;
 
-                  <div className="relative pt-2">
-                     <div className="flex justify-between items-center text-[10px] font-black uppercase text-muted-foreground mb-2 tracking-widest">
-                        <span>Payment Integrity</span>
-                        <span className="text-primary font-mono">{Math.round((totalPaid / (totalNetInvoiceAmount || 1)) * 100)}%</span>
-                     </div>
-                     <div className="w-full bg-muted/40 rounded-full h-2 overflow-hidden border border-muted/20">
-                        <motion.div 
-                           initial={{ width: 0 }}
-                           animate={{ width: `${(totalPaid / (totalNetInvoiceAmount || 1)) * 100}%` }}
-                           className="bg-gradient-to-r from-primary to-cyan-400 h-2 rounded-full shadow-[0_0_10px_rgba(var(--primary),0.4)]"
-                        />
-                     </div>
-                     <p className="text-[8px] text-muted-foreground mt-3 italic font-serif">Original Batch Base Amount: ₹{totalInvoiceOriginalAmount.toLocaleString()}</p>
-                  </div>
-               </CardContent>
-            </Card>
+                             if (isInvoice) {
+                                const inv = row.rawInvoice;
+                                rowDueDate = inv.dueDate;
+                                rowDueAmount = inv.totalAmount;
+                                rowPaidAmount = inv.amountPaid || 0;
+                                
+                                // Find successful payments
+                                const payTransactions = transactions.filter(t => 
+                                   (t.invoiceId === inv.id || t.invoice_id === inv.id) && 
+                                   (t.status === 'Success' || t.status === 'success') &&
+                                   t.type !== 'Discount' && t.category !== 'Discount' && 
+                                   !t.description?.toLowerCase().includes('discount') &&
+                                   !t.description?.toLowerCase().includes('scholarship') &&
+                                   Number(t.amount) > 0
+                                );
+                                if (payTransactions.length > 0) {
+                                   const sortedTxns = [...payTransactions].sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                                   rowPayDate = sortedTxns.map(t => formatLedgerDate(t.date)).join(', ');
+                                }
+                             } else if (row.rawTxn) {
+                                 const txn = row.rawTxn;
+                                 const linkedInv = computedInvoices.find(i => i.id === txn.invoiceId || i.id === txn.invoice_id);
+                                 
+                                 if (linkedInv) {
+                                    rowDueDate = linkedInv.dueDate;
+                                    rowDueAmount = linkedInv.totalAmount;
+                                 }
+                                 
+                                 if (row.cr !== null) {
+                                    rowPaidAmount = row.cr;
+                                    rowPayDate = txn.date;
+                                 }
+                             }
 
-            {/* 2. INVOICES SECTION */}
-            <Card className="border-muted/20 bg-card/40 backdrop-blur-md relative overflow-hidden group">
-               <div className="absolute top-0 left-0 w-1 bg-cyan-500 h-full"></div>
-               <CardHeader 
-                 className="pb-2 cursor-pointer hover:bg-muted/10 transition-colors"
-                 onClick={() => setShowInstallments(!showInstallments)}
-               >
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center justify-between w-full">
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-3 w-3" /> BILLING TIMELINE
-                      </div>
-                      <div className="text-[10px] font-mono text-primary/60 lowercase italic pr-4">
-                         Chronological View
-                      </div>
-                    </CardTitle>
-                    {showInstallments ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-                  </div>
-               </CardHeader>
-               <CardContent className="pt-4">
-                  {!showInstallments ? (
-                     <div 
-                        className="text-center py-8 cursor-pointer group/summary" 
-                        onClick={() => setShowInstallments(true)}
-                     >
-                        <div className="text-3xl font-black text-foreground mb-1 group-hover/summary:text-cyan-500 transition-colors">{computedInvoices.length}</div>
-                        <p className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground">Total Invoices</p>
-                        <div className="mt-6 flex flex-wrap justify-center gap-2">
-                           <div className="px-4 py-2 rounded-xl bg-emerald-500/5 border border-emerald-500/10 text-center min-w-[75px] shadow-sm">
-                              <div className="text-lg font-black text-emerald-600 leading-none">{computedInvoices.filter(i => i.computedStatus === 'Paid').length}</div>
-                              <div className="text-[8px] uppercase font-black tracking-widest text-emerald-600/60 mt-1">Paid</div>
-                           </div>
-                           <div className="px-4 py-2 rounded-xl bg-red-500/5 border border-red-500/10 text-center min-w-[75px] shadow-sm">
-                              <div className="text-lg font-black text-red-600 leading-none">{computedInvoices.filter(i => i.computedStatus === 'Overdue').length}</div>
-                              <div className="text-[8px] uppercase font-black tracking-widest text-red-600/60 mt-1">Overdue</div>
-                           </div>
-                           <div className="px-4 py-2 rounded-xl bg-slate-500/5 border border-slate-500/10 text-center min-w-[75px] shadow-sm">
-                              <div className="text-lg font-black text-slate-600 leading-none">{computedInvoices.filter(i => i.computedStatus === 'Upcoming' || i.computedStatus === 'Partial').length}</div>
-                              <div className="text-[8px] uppercase font-black tracking-widest text-slate-600/60 mt-1">Pending</div>
-                           </div>
-                        </div>
-                     </div>
-                  ) : (
-                     <div className="max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
-                        <div className="space-y-0.5">
-                          {computedInvoices.length === 0 ? (
-                             <div className="text-center py-6 text-muted-foreground text-[10px] uppercase font-bold tracking-widest animate-pulse">No Invoices Found</div>
-                          ) : (
-                            computedInvoices.map((inst, i) => (
-                            <div key={inst.id} className="flex items-center gap-4 group/item py-3 px-3 hover:bg-muted/5 transition-colors border-b border-muted/10 last:border-0 rounded-lg">
-                               <div className="flex-1">
-                                  <div className="flex justify-between items-start mb-1">
-                                     <div className="flex flex-col">
-                                        <span className="text-[11px] font-black tracking-widest text-foreground group-hover/item:text-primary transition-colors flex items-center gap-2">
-                                          {inst.title}
-                                            {inst.type === 'Incidental' && (
-                                              <span className="text-[8px] font-black uppercase text-indigo-400 bg-indigo-400/10 px-1 rounded">Extra</span>
+                             return (
+                                <tr key={index} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
+                                   {/* Date Column */}
+                                   <td className="py-4 px-4 tabular-nums text-slate-550 text-xs text-left">
+                                      {formatLedgerDate(row.date)}
+                                   </td>
+
+                                   {/* Particulars & Details Column */}
+                                   <td className="py-4 px-4 text-slate-900">
+                                      {isInvoice ? (
+                                         <div>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                               <span className="font-semibold text-slate-900">{row.particulars}</span>
+                                               <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm ${
+                                                  row.rawInvoice.computedStatus === 'Paid' ? 'bg-teal-50 text-teal-700 border border-teal-200' :
+                                                  row.rawInvoice.computedStatus === 'Overdue' ? 'bg-red-50 text-red-700 border border-red-200' :
+                                                  row.rawInvoice.computedStatus === 'Partially Paid' || row.rawInvoice.computedStatus === 'Partial' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                                  'bg-gray-50 text-gray-700 border border-gray-200'
+                                               }`}>
+                                                  {row.rawInvoice.computedStatus}
+                                               </span>
+                                            </div>
+                                            <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-2">
+                                               <span>Due Date: {rowDueDate ? formatLedgerDate(rowDueDate) : '-'}</span>
+                                               <span className="text-gray-300">|</span>
+                                               <span>Original Due: <strong>₹{rowDueAmount?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</strong></span>
+                                               {rowPaidAmount !== null && rowPaidAmount > 0 && (
+                                                  <>
+                                                     <span className="text-gray-300">|</span>
+                                                     <span className="text-teal-600 font-medium">Total Paid: ₹{rowPaidAmount?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                  </>
+                                               )}
+                                            </div>
+
+                                            {/* Render each payment/receipt beautifully inline */}
+                                            {(() => {
+                                               const payTransactions = transactions.filter(t => 
+                                                  (t.invoiceId === row.rawInvoice.id || t.invoice_id === row.rawInvoice.id) && 
+                                                  (t.status === 'Success' || t.status === 'success') &&
+                                                  t.type !== 'Discount' && t.category !== 'Discount' && 
+                                                  !t.description?.toLowerCase().includes('discount') &&
+                                                  !t.description?.toLowerCase().includes('scholarship') &&
+                                                  Number(t.amount) > 0
+                                               );
+                                               const discountTransactions = transactions.filter(t => 
+                                                  (t.invoiceId === row.rawInvoice.id || t.invoice_id === row.rawInvoice.id) && 
+                                                  (t.status === 'Success' || t.status === 'success') &&
+                                                  (t.type === 'Discount' || t.category === 'Discount' || 
+                                                   t.description?.toLowerCase().includes('discount') || 
+                                                   t.description?.toLowerCase().includes('scholarship') ||
+                                                   Number(t.amount) < 0)
+                                               );
+                                               const lateFeeTransactions = transactions.filter(t => 
+                                                  (t.invoiceId === row.rawInvoice.id || t.invoice_id === row.rawInvoice.id) && 
+                                                  (t.status === 'Success' || t.status === 'success') &&
+                                                  (t.type === 'Late Fee' || t.description?.toLowerCase().includes('late fee') || t.description?.toLowerCase().includes('penalty')) &&
+                                                  Number(t.amount) > 0
+                                               );
+
+                                               if (payTransactions.length === 0 && discountTransactions.length === 0 && lateFeeTransactions.length === 0) {
+                                                  return null;
+                                               }
+
+                                               return (
+                                                  <div className="mt-2 space-y-1 bg-slate-50/50 p-2.5 rounded border border-gray-100 max-w-xl">
+                                                     {payTransactions.map((txn, tIdx) => (
+                                                        <div key={txn.id || tIdx} className="flex items-center gap-1.5 text-xs text-slate-600 flex-wrap pl-2 border-l-2 border-emerald-500 py-0.5">
+                                                           <span className="font-semibold text-emerald-700">Payment: ₹{Number(txn.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                           <span className="text-gray-300">•</span>
+                                                           <span>{formatLedgerDate(txn.date)}</span>
+                                                           {txn.paymentMethod && (
+                                                              <>
+                                                                 <span className="text-gray-300">•</span>
+                                                                 <span className="text-slate-500 font-medium">{txn.paymentMethod}</span>
+                                                              </>
+                                                           )}
+                                                           {txn.referenceId && (
+                                                              <>
+                                                                 <span className="text-gray-300">•</span>
+                                                                 <span className="font-mono text-[10px] text-gray-500 bg-gray-150 px-1 py-0.5 rounded">Ref: {txn.referenceId}</span>
+                                                              </>
+                                                           )}
+                                                           <button 
+                                                             type="button"
+                                                             onClick={() => viewReceiptFromTxn(txn)}
+                                                             className="inline-flex items-center gap-1 text-[9px] uppercase font-bold tracking-wider text-teal-600 hover:text-teal-700 bg-white hover:bg-teal-50 border border-teal-100 px-1.5 py-0.5 rounded transition-colors ml-auto"
+                                                             title="Print PDF Receipt"
+                                                           >
+                                                             <Receipt className="h-2.5 w-2.5" />
+                                                             <span>Receipt</span>
+                                                           </button>
+                                                        </div>
+                                                     ))}
+                                                     {discountTransactions.map((txn, tIdx) => (
+                                                        <div key={txn.id || tIdx} className="flex items-center gap-1.5 text-xs text-slate-600 flex-wrap pl-2 border-l-2 border-amber-500 py-0.5">
+                                                           <span className="font-semibold text-amber-700">Discount: -₹{Math.abs(Number(txn.amount)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                           <span className="text-gray-300">•</span>
+                                                           <span>{formatLedgerDate(txn.date)}</span>
+                                                           {txn.description && (
+                                                              <>
+                                                                 <span className="text-gray-300">•</span>
+                                                                 <span className="italic text-gray-500">"{txn.description}"</span>
+                                                              </>
+                                                           )}
+                                                        </div>
+                                                     ))}
+                                                     {lateFeeTransactions.map((txn, tIdx) => (
+                                                        <div key={txn.id || tIdx} className="flex items-center gap-1.5 text-xs text-slate-600 flex-wrap pl-2 border-l-2 border-red-500 py-0.5">
+                                                           <span className="font-semibold text-red-700">Late Fee: +₹{Math.abs(Number(txn.amount)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                           <span className="text-gray-300">•</span>
+                                                           <span>{formatLedgerDate(txn.date)}</span>
+                                                           {txn.description && (
+                                                              <>
+                                                                 <span className="text-gray-300">•</span>
+                                                                 <span className="italic text-gray-500">"{txn.description}"</span>
+                                                              </>
+                                                           )}
+                                                        </div>
+                                                     ))}
+                                                  </div>
+                                               );
+                                            })()}
+                                         </div>
+                                      ) : (
+                                         <div>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                               <span className="font-medium text-slate-800">{row.particulars}</span>
+                                               {row.cr !== null && (
+                                                  <span className="text-teal-600 font-bold text-xs bg-teal-50 border border-teal-100 px-1.5 py-0.5 rounded">
+                                                     +₹{row.cr.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                  </span>
+                                               )}
+                                               {row.rawTxn && (
+                                                  <button 
+                                                    type="button"
+                                                    onClick={() => viewReceiptFromTxn(row.rawTxn)}
+                                                    className="inline-flex items-center gap-1 text-[10px] uppercase font-black tracking-wider text-teal-600 hover:text-teal-700 bg-teal-50 hover:bg-teal-100 px-2 py-0.5 rounded border border-teal-100 transition-colors ml-1"
+                                                    title="Print PDF Receipt"
+                                                  >
+                                                    <Receipt className="h-3 w-3" />
+                                                    <span>Receipt</span>
+                                                  </button>
+                                               )}
+                                            </div>
+                                            {row.rawTxn && (
+                                               <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-2">
+                                                  <span>Transaction Date: {formatLedgerDate(row.date)}</span>
+                                                  {row.rawTxn.paymentMethod && (
+                                                     <>
+                                                        <span className="text-gray-300">|</span>
+                                                        <span>Method: {row.rawTxn.paymentMethod}</span>
+                                                     </>
+                                                  )}
+                                                  {row.rawTxn.referenceId && (
+                                                     <>
+                                                        <span className="text-gray-300">|</span>
+                                                        <span className="font-mono">Ref: {row.rawTxn.referenceId}</span>
+                                                     </>
+                                                  )}
+                                               </div>
                                             )}
-                                        </span>
-                                        <div className="flex items-center gap-2 mt-0.5">
-                                          <span className="text-[9px] opacity-60 font-mono italic">Due {new Date(inst.dueDate + 'T12:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                                          <span className={`text-[8px] uppercase font-black tracking-tighter px-1.5 py-0.5 rounded leading-none ${inst.computedStatus === 'Paid' ? 'bg-success/10 text-success' : inst.computedStatus === 'Overdue' ? 'bg-destructive/10 text-destructive' : inst.computedStatus === 'Partial' ? 'bg-warning/10 text-warning' : 'bg-muted/20 text-muted-foreground'}`}>{inst.computedStatus}</span>
-                                        </div>
-                                     </div>
-                                    <div className="flex flex-col items-end">
-                                       {editingInvoiceId === inst.id ? (
-                                          <div className="flex items-center gap-1">
+                                         </div>
+                                      )}
+                                   </td>
+
+                                   {/* Overdue / Pending column with Inline Edit Support */}
+                                   <td className="py-4 px-4 text-right tabular-nums">
+                                      {isEditingThisInvoice ? (
+                                         <div className="flex items-center gap-1.5 justify-end">
                                             <Input 
                                               type="number"
                                               value={editInvoiceAmount}
                                               onChange={(e) => setEditInvoiceAmount(e.target.value)}
-                                              className="h-6 w-20 text-xs px-1 font-mono text-right"
+                                              className="h-7 w-24 text-xs px-2 text-right tabular-nums rounded-sm border-gray-300 bg-white"
                                               autoFocus
                                               onKeyDown={(e) => {
                                                  if (e.key === 'Enter') handleSaveInvoiceEdit();
                                                  if (e.key === 'Escape') setEditingInvoiceId(null);
                                               }}
                                             />
-                                            <Button size="icon" variant="ghost" className="h-6 w-6 text-success" onClick={handleSaveInvoiceEdit}>
-                                              <CheckCircle2 className="h-3 w-3" />
-                                            </Button>
-                                            <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => setEditingInvoiceId(null)}>
-                                              <X className="h-3 w-3" />
-                                            </Button>
-                                          </div>
-                                       ) : (
-                                          <div className="text-sm font-black font-mono">₹{inst.totalAmount.toLocaleString()}</div>
-                                       )}
-                                        {inst.computedStatus === 'Partial' && inst.amountDue > 0 && editingInvoiceId !== inst.id && (
-                                           <div className="text-[9px] font-black text-destructive font-mono">Pending: ₹{(inst.amountDue || 0).toLocaleString()}</div>
-                                        )}
-                                     </div>
-                                  </div>
-                                  
-                                  {inst.computedStatus === 'Partial' && (
-                                     <div className="w-full bg-muted/40 rounded-full h-1 my-2 overflow-hidden">
-                                        <div className="bg-warning h-1 rounded-full" style={{ width: `${(inst.amountPaid! / (inst.netInvoiceAmount || 1)) * 100}%` }}></div>
-                                     </div>
-                                  )}
+                                            <button 
+                                              type="button" 
+                                              className="p-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded" 
+                                              onClick={handleSaveInvoiceEdit}
+                                            >
+                                               <CheckCircle2 className="h-4 w-4" />
+                                            </button>
+                                            <button 
+                                              type="button" 
+                                              className="p-1 text-red-650 hover:text-red-700 hover:bg-red-50 rounded" 
+                                              onClick={() => setEditingInvoiceId(null)}
+                                            >
+                                               <X className="h-4 w-4" />
+                                            </button>
+                                         </div>
+                                      ) : row.dr !== null ? (
+                                         <div className="flex items-center justify-end gap-1.5 group">
+                                            <span className="text-red-600 font-semibold">₹{row.dr.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                            {isInvoice && row.rawInvoice.computedStatus !== 'Paid' && (
+                                               <button 
+                                                 type="button"
+                                                 className="text-gray-400 hover:text-teal-600 p-0.5 rounded transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                                 onClick={() => {
+                                                    setEditingInvoiceId(row.rawInvoice.id);
+                                                    setEditInvoiceAmount(row.rawInvoice.totalAmount.toString());
+                                                 }}
+                                                 title="Edit original amount"
+                                               >
+                                                  <Edit3 className="h-3 w-3" />
+                                               </button>
+                                            )}
+                                         </div>
+                                      ) : (
+                                         <span className="text-gray-300">-</span>
+                                      )}
+                                   </td>
 
-                                  <div className="flex justify-between items-center mt-1">
-                                     <div className="flex items-center gap-2">
-                                        <span className={`text-[9px] uppercase font-black tracking-tighter px-1.5 py-0.5 rounded ${inst.computedStatus === 'Paid' ? 'bg-success/10 text-success' : inst.computedStatus === 'Overdue' ? 'bg-destructive/10 text-destructive' : inst.computedStatus === 'Partial' ? 'bg-warning/10 text-warning' : 'bg-muted/50 text-muted-foreground'}`}>{inst.computedStatus}</span>
-                                        {inst.type === 'Incidental' && (
-                                          <span className="text-[8px] font-bold uppercase tracking-widest text-indigo-400">Extra Charge</span>
-                                        )}
-                                     </div>
-                                     <div className="flex items-center gap-2">
-                                        <span className="text-[9px] opacity-60 font-mono italic">Due {new Date(inst.dueDate + 'T12:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                                        {inst.computedStatus !== 'Paid' && editingInvoiceId !== inst.id && (
-                                           <Button 
-                                             variant="ghost" 
-                                             size="icon" 
-                                             className="h-5 w-5 opacity-0 group-hover/item:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
-                                             onClick={() => {
-                                                setEditingInvoiceId(inst.id);
-                                                setEditInvoiceAmount(inst.totalAmount.toString());
-                                             }}
-                                           >
-                                              <Edit3 className="h-3 w-3" />
-                                           </Button>
-                                        )}
-                                     </div>
-                                  </div>
-                               </div>
-                            </div>
-                          )))}
-                        </div>
-                     </div>
-                  )}
-               </CardContent>
-            </Card>
+                                   
+                                </tr>
+                             );
+                          })
+                       )}
+                    </tbody>
+                  </table>
+               </div>
 
-          </div>
-
-          {/* 3. HISTORY SECTION */}
-            <Card className="border-muted/20 bg-card/40 backdrop-blur-md relative overflow-hidden group">
-               <div className="absolute top-0 left-0 w-1 bg-indigo-500 h-full"></div>
-               <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                  <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
-                    <History className="h-3 w-3" /> HISTORY SECTION
-                  </CardTitle>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 group-hover:bg-primary/10 group-hover:text-primary transition-all">
-                     <Download className="h-4 w-4" />
-                  </Button>
-               </CardHeader>
-               <CardContent className="p-0">
-                  <div className="max-h-[420px] overflow-auto custom-scrollbar">
-                    <Table>
-                      <TableHeader className="bg-muted/10 sticky top-0 z-20 backdrop-blur-md">
-                        <TableRow className="hover:bg-transparent border-muted/20">
-                          <TableHead className="text-[9px] font-black uppercase tracking-widest h-10 px-4">Timeline</TableHead>
-                          <TableHead className="text-[9px] font-black uppercase tracking-widest h-10 px-4">Amount</TableHead>
-                          <TableHead className="text-[9px] font-black uppercase tracking-widest h-10 px-4 text-right">State</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {transactions.length === 0 ? (
-                           <TableRow>
-                             <TableCell colSpan={3} className="text-center py-20 text-muted-foreground font-mono italic text-[10px] tracking-[0.4em] uppercase animate-pulse">Drive_Is_Empty</TableCell>
-                           </TableRow>
-                        ) : (
-                          transactions.map((txn) => (
-                            <TableRow key={txn.id} className="group/row hover:bg-primary/5 border-muted/5 transition-colors">
-                              <TableCell className="px-4 py-4">
-                                <div className="text-[10px] font-black text-foreground group-hover/row:text-primary transition-colors tracking-widest">{txn.date}</div>
-                                <div className="text-[8px] text-muted-foreground font-mono mt-0.5">{txn.id}</div>
-                                {txn.description && (
-                                  <div className="text-[9px] text-muted-foreground italic mt-0.5 max-w-[180px] truncate">{txn.description}</div>
-                                )}
-                              </TableCell>
-                              <TableCell className="px-4 py-4">
-                                <div className={`text-[11px] font-black ${(txn.type === 'Discount' || txn.category === 'Discount' || txn.description?.toLowerCase().includes('discount') || txn.description?.toLowerCase().includes('scholarship') || txn.amount < 0) ? 'text-emerald-500' : 'text-foreground'}`}>
-                                  {(txn.type === 'Discount' || txn.category === 'Discount' || txn.description?.toLowerCase().includes('discount') || txn.description?.toLowerCase().includes('scholarship') || txn.amount < 0) ? '-' : ''}₹{Math.abs(txn.amount).toLocaleString()}
-                                </div>
-                                <div className="text-[8px] text-muted-foreground uppercase font-black tracking-tighter">
-                                  {(txn.type === 'Discount' || txn.category === 'Discount' || txn.description?.toLowerCase().includes('discount') || txn.description?.toLowerCase().includes('scholarship') || txn.amount < 0) ? 'Discount Adjustment' : (txn.paymentMethod || 'SYSTEM')}
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-right px-4 py-4">
-                                <div className="flex items-center justify-end gap-2">
-                                  <Badge variant={txn.status === "Success" ? "success" : "destructive"} className="text-[9px] h-5 px-2 font-black uppercase tracking-tighter border-none shadow-sm">
-                                    {txn.status}
-                                  </Badge>
-                                  {!(txn.type === 'Discount' || txn.category === 'Discount' || txn.description?.toLowerCase().includes('discount') || txn.description?.toLowerCase().includes('scholarship') || txn.amount < 0) && (
-                                    <Button 
-                                      variant="ghost" 
-                                      size="icon" 
-                                      className="h-6 w-6 rounded-md hover:bg-emerald-500/10 hover:text-emerald-600 transition-all opacity-0 group-hover/row:opacity-100"
-                                      onClick={() => viewReceiptFromTxn(txn)}
-                                      title="View Receipt"
-                                    >
-                                      <Receipt className="h-3.5 w-3.5" />
-                                    </Button>
-                                  )}
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-               </CardContent>
-            </Card>
+           </div>
         </TabsContent>
 
         {/* Tab: Document Vault */}
