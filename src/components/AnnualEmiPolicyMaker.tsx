@@ -82,37 +82,51 @@ export function AnnualEmiPolicyMaker({
      calculateDefaultPolicy();
   }, [totalCourseFee, downpayment, frequency, customTerms, customGap, enrollmentDate]);
   
-  const handlePercentageChange = (index: number, newPercent: number) => {
+  const handleAmountChange = (index: number, newAmount: number) => {
       let remaining = totalCourseFee - downpayment;
+      if (remaining <= 0) return;
+      
       const newEmis = [...emis];
-      newEmis[index].percentage = newPercent;
-      newEmis[index].amount = parseFloat(((newPercent / 100) * remaining).toFixed(2));
+      newEmis[index].amount = Math.min(remaining, Math.max(0, newAmount));
       newEmis[index].locked = true;
       
-      const lockedSumPercent = newEmis.filter(e => e.locked).reduce((sum, e) => sum + e.percentage, 0);
+      const lockedSumAmount = newEmis.filter(e => e.locked).reduce((sum, e) => sum + e.amount, 0);
       const unlockedCount = newEmis.filter(e => !e.locked).length;
       
       if (unlockedCount > 0) {
-          const remainingPercent = Math.max(0, 100 - lockedSumPercent);
-          const equalPercent = parseFloat((remainingPercent / unlockedCount).toFixed(2));
+          const remainingAmount = Math.max(0, remaining - lockedSumAmount);
+          const equalAmount = parseFloat((remainingAmount / unlockedCount).toFixed(2));
           
-          let generatedPercent = 0;
+          let generatedAmount = 0;
           newEmis.forEach(e => {
               if (!e.locked) {
-                  e.percentage = equalPercent;
-                  e.amount = parseFloat(((equalPercent / 100) * remaining).toFixed(2));
-                  generatedPercent += equalPercent;
+                  e.amount = equalAmount;
+                  generatedAmount += equalAmount;
               }
           });
           
-          const diff = (100 - lockedSumPercent) - generatedPercent;
+          const diff = (remaining - lockedSumAmount) - generatedAmount;
           if (diff !== 0) {
               const lastUnlocked = newEmis.concat().reverse().find(e => !e.locked);
               if (lastUnlocked) {
-                  lastUnlocked.percentage = parseFloat((lastUnlocked.percentage + diff).toFixed(2));
-                  lastUnlocked.amount = parseFloat(((lastUnlocked.percentage / 100) * remaining).toFixed(2));
+                  lastUnlocked.amount = parseFloat((lastUnlocked.amount + diff).toFixed(2));
               }
           }
+      } else {
+         const otherLockedSum = newEmis.filter((e, idx) => idx !== index).reduce((sum, e) => sum + e.amount, 0);
+         if (newEmis[index].amount + otherLockedSum > remaining) {
+            newEmis[index].amount = Math.max(0, remaining - otherLockedSum);
+         }
+      }
+      
+      // Re-calculate percentages based on final amounts
+      newEmis.forEach(e => {
+          e.percentage = parseFloat(((e.amount / remaining) * 100).toFixed(2));
+      });
+      
+      const sumPercent = newEmis.reduce((s, e) => s + e.percentage, 0);
+      if (sumPercent !== 100 && newEmis.length > 0) {
+          newEmis[newEmis.length-1].percentage = parseFloat((newEmis[newEmis.length-1].percentage + (100 - sumPercent)).toFixed(2));
       }
       
       setEmis(newEmis);
@@ -143,7 +157,7 @@ export function AnnualEmiPolicyMaker({
              <span className="w-1.5 h-3 bg-emerald-500 rounded-full"></span>
              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">EMI Policy Maker</h4>
            </div>
-           <p className="text-[11px] text-slate-500 mt-0.5">Distribute total fee logically by percentage.</p>
+           <p className="text-[11px] text-slate-500 mt-0.5">Distribute total fee logically by adjusting the installment amounts directly.</p>
         </div>
         <Button 
           size="sm" 
@@ -171,17 +185,20 @@ export function AnnualEmiPolicyMaker({
                   </div>
                   
                   <div className="flex items-center gap-2">
-                     <div className="w-24 shrink-0 flex items-center relative">
-                        <span className="absolute left-3 text-xs font-black text-slate-400 select-none group-focus-within:text-emerald-500 transition-colors">%</span>
+                     <div className="w-36 shrink-0 flex items-center relative">
+                        <span className="absolute left-3 text-xs font-black text-emerald-500 select-none group-focus-within:text-emerald-600 transition-colors">₹</span>
                         <input 
                           type="number"
-                          value={emi.percentage}
-                          onChange={(e) => handlePercentageChange(i, parseFloat(e.target.value) || 0)}
+                          value={emi.amount}
+                          onChange={(e) => handleAmountChange(i, parseFloat(e.target.value) || 0)}
+                          placeholder="Amount"
                           className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/30 pl-7 pr-2 py-1 text-xs font-mono font-bold text-slate-800 hover:bg-slate-100/50 focus:bg-white focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20 shadow-inner outline-none transition-all duration-200"
                         />
                      </div>
-                     <div className="w-28 shrink-0 flex items-center justify-end pr-1">
-                       <span className="text-xs font-mono font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1.5 rounded-md border border-emerald-100 shadow-sm">₹{emi.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                     <div className="w-24 shrink-0 flex items-center justify-end pr-1">
+                        <span className="text-xs font-mono font-bold text-slate-500 bg-slate-50 px-2.5 py-1.5 rounded-md border border-slate-100 shadow-xs" title="Calculated installment percentage">
+                           {emi.percentage.toFixed(1)}%
+                        </span>
                      </div>
                      <Button
                        variant="ghost" 
