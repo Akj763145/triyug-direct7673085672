@@ -105,24 +105,28 @@ const DocumentDropzone = ({ docType, label, file, onDropFile }: DocumentDropzone
   return (
     <div 
       {...getRootProps()} 
-      className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
-        file ? 'border-emerald-500/50 bg-emerald-500/5' : 
-        isDragActive ? 'border-primary bg-primary/5' : 
-        'border-muted hover:border-primary/50'
+      className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${
+        file ? 'border-emerald-500/50 bg-emerald-50/50 shadow-sm' : 
+        isDragActive ? 'border-emerald-500 bg-emerald-50/80 shadow-sm' : 
+        'border-slate-200 bg-slate-50/50 hover:bg-slate-50 hover:border-emerald-500/30'
       }`}
     >
       <input {...getInputProps()} />
       {file ? (
         <div className="flex flex-col items-center">
-          <CheckCircle2 className="h-6 w-6 text-emerald-600 mb-2" />
-          <p className="text-sm font-medium text-emerald-600">{file.name}</p>
-          <p className="text-xs text-muted-foreground">Click or drag to replace</p>
+           <div className="h-10 w-10 bg-emerald-100 rounded-full flex items-center justify-center mb-3">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+           </div>
+          <p className="text-[13px] font-bold text-emerald-700 truncate max-w-[150px]" title={file.name}>{file.name}</p>
+          <p className="text-[11px] font-bold tracking-wider text-emerald-600/60 uppercase mt-1">Tap to Replace</p>
         </div>
       ) : (
-        <div className="flex flex-col items-center text-muted-foreground">
-          <Upload className="h-6 w-6 mb-2 opacity-50" />
-          <p className="text-sm font-medium">{label}</p>
-          <p className="text-xs">Max 5MB (PDF, JPG, PNG)</p>
+        <div className="flex flex-col items-center text-slate-500">
+          <div className="h-10 w-10 bg-white shadow-sm border border-slate-100 rounded-full flex items-center justify-center mb-3 text-slate-400">
+             <Upload className="h-5 w-5" />
+          </div>
+          <p className="text-[13px] font-bold text-slate-700">{label}</p>
+          <p className="text-[11px] font-bold tracking-wide uppercase text-slate-400 mt-1">Max 5MB (PDF, JPG)</p>
         </div>
       )}
     </div>
@@ -447,47 +451,59 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
       onOpenChange(open);
       if (!open) { reset(); setCurrentStep(1); setDocuments({}); }
     }}>
-      <DialogContent onInteractOutside={(e) => e.preventDefault()} className="max-w-4xl p-0 overflow-hidden bg-background border-muted/20">
-        <div className="grid grid-cols-1 md:grid-cols-4 h-full min-h-[600px]">
+      <DialogContent onInteractOutside={(e) => e.preventDefault()} className="max-w-5xl p-0 overflow-hidden bg-white/95 backdrop-blur-md border border-slate-200/60 rounded-3xl shadow-2xl sm:rounded-3xl font-sans">
+        <div className="grid grid-cols-1 md:grid-cols-12 h-full min-h-[650px]">
           {/* Sidebar */}
-          <div className="bg-muted/10 p-6 border-r border-muted/20 hidden md:block">
-            <h2 className="font-bold text-lg mb-8 tracking-tight">Enrollment Wizard</h2>
-            <div className="space-y-6">
-              {STEPS.map((step) => {
+          <div className="md:col-span-4 lg:col-span-3 bg-slate-50/80 p-8 border-r border-slate-200/50 hidden md:flex flex-col relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1/3 bg-gradient-to-b from-emerald-500/5 to-transparent pointer-events-none" />
+            <h2 className="font-extrabold text-xl mb-10 tracking-tight text-slate-800 flex items-center gap-2">
+              <GraduationCap className="h-6 w-6 text-emerald-600" />
+              Enrollment
+            </h2>
+            <div className="space-y-0 relative z-10">
+              {STEPS.map((step, index) => {
                 const Icon = step.icon;
                 const isActive = currentStep === step.id;
                 const isPassed = currentStep > step.id;
                 return (
-                  <div key={step.id} className="flex items-center gap-3">
-                    <div className={`h-8 w-8 rounded-full flex items-center justify-center border-2 transition-colors ${
-                      isActive ? "border-primary bg-primary/10 text-primary" : 
-                      isPassed ? "border-emerald-500 bg-emerald-500/10 text-emerald-600" : 
-                      "border-muted text-muted-foreground"
-                    }`}>
-                      {isPassed ? <CheckCircle2 className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
+                  <div key={step.id} className="flex flex-col">
+                    <div className="flex items-center gap-4 group">
+                      <div className={`h-10 w-10 shrink-0 rounded-2xl flex items-center justify-center border-2 transition-all duration-300 shadow-sm ${
+                        isActive ? "border-emerald-500 bg-emerald-500 text-white shadow-emerald-500/20" : 
+                        isPassed ? "border-emerald-500 text-emerald-600 bg-emerald-50" : 
+                        "border-slate-200 bg-white text-slate-400 group-hover:border-slate-300"
+                      }`}>
+                        {isPassed ? <CheckCircle2 className="h-5 w-5" /> : <Icon className="h-4 w-4" />}
+                      </div>
+                      <div>
+                        <p className={`text-sm font-bold transition-colors ${isActive ? 'text-slate-900' : isPassed ? 'text-slate-700' : 'text-slate-400'}`}>{step.title}</p>
+                        <p className={`text-[10px] uppercase font-black tracking-widest transition-colors ${isActive ? 'text-emerald-600' : 'text-slate-400'}`}>Step {step.id}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className={`text-sm font-bold ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}>{step.title}</p>
-                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Step {step.id}</p>
-                    </div>
+                    {/* Connector line */}
+                    {index < STEPS.length - 1 && (
+                       <div className="h-8 w-10 flex justify-center my-1.5 opacity-50">
+                         <div className={`w-0.5 h-full rounded-full transition-colors ${isPassed ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                       </div>
+                    )}
                   </div>
                 );
               })}
             </div>
             
-            <div className="mt-auto pt-12">
-               <div className="bg-primary/5 rounded-xl p-4 border border-primary/10">
-                  <p className="text-xs font-bold text-primary mb-1">Save Progress</p>
-                  <p className="text-[10px] text-muted-foreground mb-3">Applications can take time. Save and return via your portal.</p>
-                  <Button variant="outline" size="sm" className="w-full text-xs" onClick={handleSaveDraft}>
-                    <Save className="h-3 w-3 mr-2" /> Save Draft
+            <div className="mt-auto pt-12 relative z-10">
+               <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                  <p className="text-sm font-extrabold text-slate-800 mb-1 flex items-center gap-2"><Save className="h-4 w-4 text-emerald-500"/> Save Progress</p>
+                  <p className="text-[11px] text-slate-500 mb-4 leading-relaxed tracking-wide">Applications can take time. Save your current progress and return later via your portal.</p>
+                  <Button variant="outline" size="sm" className="w-full text-xs h-9 rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-bold tracking-wide transition-all" onClick={handleSaveDraft}>
+                    Save Draft
                   </Button>
                </div>
             </div>
           </div>
 
           {/* Form Content */}
-          <div className="md:col-span-3 p-6 flex flex-col max-h-[85vh] overflow-y-auto">
+          <div className="md:col-span-8 lg:col-span-9 p-8 md:p-10 flex flex-col max-h-[85vh] overflow-y-auto bg-white">
             {/* Mobile Progress */}
             <div className="md:hidden flex items-center justify-between mb-6">
                <p className="font-bold text-sm tracking-widest uppercase">Step {currentStep} of {STEPS.length}</p>
@@ -528,101 +544,103 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                         <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Profile Photo</p>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">First Name *</label>
-                          <Input {...register("firstName")} />
-                          {errors.firstName && <span className="text-[10px] text-destructive">{errors.firstName.message}</span>}
+                      <div className="grid grid-cols-2 gap-5">
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">First Name *</label>
+                          <Input {...register("firstName")} className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-slate-50/50" />
+                          {errors.firstName && <span className="text-[10px] font-medium text-destructive">{errors.firstName.message}</span>}
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Last Name *</label>
-                          <Input {...register("lastName")} />
-                          {errors.lastName && <span className="text-[10px] text-destructive">{errors.lastName.message}</span>}
-                        </div>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Date of Birth *</label>
-                          <Input type="date" {...register("dateOfBirth")} />
-                          {errors.dateOfBirth && <span className="text-[10px] text-destructive">{errors.dateOfBirth.message}</span>}
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Enrollment Date *</label>
-                          <Input type="date" {...register("enrollmentDate")} />
-                          {errors.enrollmentDate && <span className="text-[10px] text-destructive">{errors.enrollmentDate.message}</span>}
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Last Name *</label>
+                          <Input {...register("lastName")} className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-slate-50/50" />
+                          {errors.lastName && <span className="text-[10px] font-medium text-destructive">{errors.lastName.message}</span>}
                         </div>
                       </div>
                       
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Gender *</label>
-                          <select {...register("gender")} className="w-full h-9 px-3 py-1 bg-background border border-input rounded-md text-sm">
-                            <option value="">Select...</option>
+                      <div className="grid grid-cols-2 gap-5">
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Date of Birth *</label>
+                          <Input type="date" {...register("dateOfBirth")} className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-slate-50/50 text-slate-700" />
+                          {errors.dateOfBirth && <span className="text-[10px] font-medium text-destructive">{errors.dateOfBirth.message}</span>}
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Enrollment Date *</label>
+                          <Input type="date" {...register("enrollmentDate")} className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-slate-50/50 text-slate-700" />
+                          {errors.enrollmentDate && <span className="text-[10px] font-medium text-destructive">{errors.enrollmentDate.message}</span>}
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-5">
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Gender *</label>
+                          <select {...register("gender")} className="w-full h-11 px-4 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all text-slate-700">
+                            <option value="">Select gender...</option>
                             <option value="Male">Male</option>
                             <option value="Female">Female</option>
                             <option value="Other">Other</option>
                           </select>
-                          {errors.gender && <span className="text-[10px] text-destructive">{errors.gender.message}</span>}
+                          {errors.gender && <span className="text-[10px] font-medium text-destructive">{errors.gender.message}</span>}
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex justify-between items-center">
-                            <span>Grade *</span>
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between items-center">
+                            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                              Grade *
+                            </label>
                             <button
                               type="button"
                               onClick={() => setIsAddingGrade(!isAddingGrade)}
-                              className="text-[10px] text-primary hover:underline font-bold focus:outline-none"
+                              className="text-[10px] text-emerald-600 hover:text-emerald-700 font-bold focus:outline-none bg-emerald-50 px-2 py-0.5 rounded transition-colors"
                             >
                               {isAddingGrade ? 'Cancel' : '+ Add New'}
                             </button>
-                          </label>
+                          </div>
                           {isAddingGrade ? (
                             <div className="flex gap-2">
                               <Input 
                                 value={newGradeName} 
                                 onChange={(e) => setNewGradeName(e.target.value)} 
                                 placeholder="New grade name..." 
-                                className="h-9"
+                                className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-white"
                               />
                               <Button 
                                 type="button" 
                                 onClick={handleCreateGrade} 
                                 disabled={!newGradeName.trim() || isAddingGradeSubmitting}
-                                className="h-9 px-3 shrink-0"
+                                className="h-11 px-4 shrink-0 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white"
                               >
                                 Save
                               </Button>
                             </div>
                           ) : (
                             <div>
-                              <select {...register("grade")} className="w-full h-9 px-3 py-1 bg-background border border-input rounded-md text-sm">
-                                <option value="">Select...</option>
+                              <select {...register("grade")} className="w-full h-11 px-4 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all text-slate-700">
+                                <option value="">Select a grade...</option>
                                 {availableGrades.map((g) => (
                                   <option key={g.id} value={g.name}>{g.name}</option>
                                 ))}
                               </select>
-                              {errors.grade && <span className="text-[10px] text-destructive">{errors.grade.message}</span>}
+                              {errors.grade && <span className="text-[10px] font-medium text-destructive">{errors.grade.message}</span>}
                             </div>
                           )}
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4 mt-2">
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Select Batch *</label>
-                          <select {...register("batchId")} className="w-full h-9 px-3 py-1 bg-background border border-input rounded-md text-sm">
-                            <option value="">Select Batch...</option>
+                      <div className="grid grid-cols-2 gap-5 mt-2">
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Select Batch *</label>
+                          <select {...register("batchId")} className="w-full h-11 px-4 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all text-slate-700">
+                            <option value="">Select an assigned batch...</option>
                             {availableBatches.map((b) => (
                               <option key={b.id} value={b.id}>{b.name} (₹{b.total_batch_amount})</option>
                             ))}
                           </select>
-                          {errors.batchId && <span className="text-[10px] text-destructive">{errors.batchId.message}</span>}
+                          {errors.batchId && <span className="text-[10px] font-medium text-destructive">{errors.batchId.message}</span>}
                         </div>
                       </div>
 
                       {/* Conditional logic: International Student */}
-                      <div className="p-4 border border-muted/20 bg-muted/5 rounded-lg space-y-4">
-                        <div className="flex items-center space-x-2">
+                      <div className="p-5 border border-slate-200/60 bg-slate-50/50 rounded-xl space-y-4">
+                        <div className="flex items-center space-x-3">
                           <Controller
                             name="isInternational"
                             control={control}
@@ -631,10 +649,11 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                                 id="isInternational" 
                                 checked={field.value} 
                                 onCheckedChange={field.onChange} 
+                                className="border-slate-300 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
                               />
                             )}
                           />
-                          <label htmlFor="isInternational" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                          <label htmlFor="isInternational" className="text-sm font-bold text-slate-700 leading-none cursor-pointer">
                             International Student
                           </label>
                         </div>
@@ -645,15 +664,15 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                               initial={{ height: 0, opacity: 0 }} 
                               animate={{ height: "auto", opacity: 1 }} 
                               exit={{ height: 0, opacity: 0 }}
-                              className="overflow-hidden grid grid-cols-2 gap-4 pt-2"
+                              className="overflow-hidden grid grid-cols-2 gap-5 pt-3"
                             >
-                              <div className="space-y-1">
-                                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Passport Number</label>
-                                <Input {...register("passportNumber")} />
+                              <div className="space-y-1.5">
+                                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Passport Number</label>
+                                <Input {...register("passportNumber")} className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-white" />
                               </div>
-                              <div className="space-y-1">
-                                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Visa Status</label>
-                                <Input {...register("visaStatus")} />
+                              <div className="space-y-1.5">
+                                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Visa Status</label>
+                                <Input {...register("visaStatus")} className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-white" />
                               </div>
                             </motion.div>
                           )}
@@ -664,18 +683,19 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
 
                   {/* STEP 2: Fee Structure */}
                   {currentStep === 2 && (
-                    <div className="space-y-5">
-                      <div className="space-y-4 border-b border-muted/20 pb-4">
-                        <h3 className="font-bold text-sm tracking-tight">Tuition Fee Setup</h3>
-                        <p className="text-sm text-muted-foreground">Define the program fee structure for this student admission.</p>
+                    <div className="space-y-6">
+                      <div className="space-y-2 border-b border-slate-200/60 pb-5">
+                        <h3 className="font-extrabold text-sm tracking-tight text-slate-800">Tuition Fee Setup</h3>
+                        <p className="text-sm text-slate-500">Define the program fee structure for this student admission.</p>
+                      </div>
                         
-                        <Tabs value={feeTab || undefined} onValueChange={(val) => {
-                          setFeeTab(val);
-                          setValue("divideRemaining", val === "monthly");
-                        }} className="w-full mt-6">
-                          <TabsList className="grid w-full grid-cols-2">
-                             <TabsTrigger value="monthly">Monthly / Custom EMIs</TabsTrigger>
-                             <TabsTrigger value="annual">Annual Fee System</TabsTrigger>
+                      <Tabs value={feeTab || undefined} onValueChange={(val) => {
+                        setFeeTab(val);
+                        setValue("divideRemaining", val === "monthly");
+                      }} className="w-full mt-2">
+                        <TabsList className="grid w-full grid-cols-2 bg-slate-50 p-1 rounded-xl">
+                             <TabsTrigger value="monthly" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-emerald-700 font-bold text-slate-500">Monthly / Custom EMIs</TabsTrigger>
+                             <TabsTrigger value="annual" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-emerald-700 font-bold text-slate-500">Annual Fee System</TabsTrigger>
                           </TabsList>
                                                    {feeTab ? (
                             <div className="space-y-6 mt-6">
@@ -687,15 +707,12 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                                        <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                                          <IndianRupee className="h-4 w-4 text-slate-400" />
                                        </div>
-                                       {feeTab === "monthly" && (
-                                         <Input 
-                                           type="number" 
-                                           {...register("feePerInstallmentAmount")} 
-                                           placeholder="e.g. 5000" 
-                                           className="pl-9 h-10 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-lg bg-slate-50/30 font-medium"
-                                         />
-                                       )}
-                                       {!feeTab || feeTab !== "monthly" ? <div className="h-10"></div> : null}
+                                       <Input 
+                                         type="number" 
+                                         {...register("feePerInstallmentAmount")} 
+                                         placeholder="e.g. 5000" 
+                                         className="pl-9 h-10 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-lg bg-slate-50/30 font-medium"
+                                       />
                                      </div>
                                      {errors.feePerInstallmentAmount && (
                                        <span className="text-[10px] text-destructive font-medium">{errors.feePerInstallmentAmount.message}</span>
@@ -707,14 +724,11 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                                        <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                                          <CalendarDays className="h-4 w-4 text-slate-400" />
                                        </div>
-                                       {feeTab === "monthly" && (
-                                         <Input 
-                                           type="date" 
-                                           {...register("targetEndMonth")} 
-                                           className="pl-9 h-10 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-lg bg-slate-50/30 font-medium text-slate-800"
-                                         />
-                                       )}
-                                       {!feeTab || feeTab !== "monthly" ? <div className="h-10"></div> : null}
+                                       <Input 
+                                         type="date" 
+                                         {...register("targetEndMonth")} 
+                                         className="pl-9 h-10 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-lg bg-slate-50/30 font-medium text-slate-800"
+                                       />
                                      </div>
                                    </div>
                                  </div>
@@ -756,30 +770,36 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                                  )}
                               </TabsContent>
                               
-                              <TabsContent value="annual" className="pt-0 border border-border/50 rounded-lg p-4 bg-card mt-0 space-y-4">
-                                 <div className="grid grid-cols-2 gap-4 border border-border/50 rounded-lg p-4 bg-muted/10 mb-2">
-                                   <div className="space-y-1">
-                                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total Course Fee *</label>
-                                     {feeTab === "annual" && (
-                                        <Input type="number" {...register("feePerInstallmentAmount")} placeholder="e.g. 50000" />
-                                     )}
-                                     {errors.feePerInstallmentAmount && <span className="text-[10px] text-destructive">{errors.feePerInstallmentAmount.message}</span>}
+                              <TabsContent value="annual" className="pt-0 border border-slate-200 rounded-xl p-5 bg-white mt-0 space-y-5 shadow-sm">
+                                 <div className="grid grid-cols-2 gap-5 border border-slate-200/60 rounded-xl p-5 bg-slate-50/50 mb-2">
+                                   <div className="space-y-1.5">
+                                     <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Course Fee *</label>
+                                     <div className="relative rounded-lg shadow-sm">
+                                       <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                                         <IndianRupee className="h-4 w-4 text-slate-400" />
+                                       </div>
+                                       <Input type="number" {...register("feePerInstallmentAmount")} placeholder="e.g. 50000" className="pl-9 h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-lg bg-white font-medium" />
+                                     </div>
+                                     {errors.feePerInstallmentAmount && <span className="text-[10px] font-medium text-destructive">{errors.feePerInstallmentAmount.message}</span>}
                                    </div>
-                                   <div className="space-y-1">
-                                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Initial Downpayment / Registration Fee</label>
-                                     {feeTab === "annual" && (
-                                        <Input type="number" {...register("downpaymentAmount")} placeholder="Optional (e.g. 10000)" />
-                                     )}
+                                   <div className="space-y-1.5">
+                                     <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Initial Downpayment / Reg Fee</label>
+                                     <div className="relative rounded-lg shadow-sm">
+                                       <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                                         <IndianRupee className="h-4 w-4 text-slate-400" />
+                                       </div>
+                                       <Input type="number" {...register("downpaymentAmount")} placeholder="Optional (e.g. 10000)" className="pl-9 h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-lg bg-white font-medium text-slate-700" />
+                                     </div>
                                    </div>
                                  </div>
 
-                                 <div className="space-y-4 pt-2">
-                                    <div className="space-y-1 sm:w-2/3">
-                                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">EMI Frequency *</label>
-                                      <div className="flex gap-2">
+                                 <div className="space-y-5 pt-3">
+                                    <div className="space-y-1.5 sm:w-2/3">
+                                      <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">EMI Frequency *</label>
+                                      <div className="flex gap-3">
                                          <select 
                                             {...register("annualEmiFrequency")}
-                                            className="flex h-9 w-40 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                            className="w-48 h-11 px-4 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all text-slate-700"
                                          >
                                             <option value="Monthly">Monthly</option>
                                             <option value="Quarterly">Quarterly</option>
@@ -791,12 +811,12 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                                          {watch("annualEmiFrequency") === "Custom" && (
                                            <>
                                              <div className="flex flex-col">
-                                                <Input type="number" {...register("annualEmiCustomTerms")} placeholder="# Emis" className="w-20 font-mono h-9" />
-                                                <span className="text-[9px] text-muted-foreground mt-1">Total EMIs</span>
+                                                <Input type="number" {...register("annualEmiCustomTerms")} placeholder="# Emis" className="w-20 font-mono h-11 border-slate-200 rounded-xl text-center" />
+                                                <span className="text-[9px] font-bold tracking-wider text-slate-400 mt-1 uppercase text-center">Total EMIs</span>
                                              </div>
                                              <div className="flex flex-col">
-                                                <Input type="number" {...register("annualEmiCustomGap")} placeholder="Gap" className="w-20 font-mono h-9" />
-                                                <span className="text-[9px] text-muted-foreground mt-1">Gap (Months)</span>
+                                                <Input type="number" {...register("annualEmiCustomGap")} placeholder="Gap" className="w-20 font-mono h-11 border-slate-200 rounded-xl text-center" />
+                                                <span className="text-[9px] font-bold tracking-wider text-slate-400 mt-1 uppercase text-center">Gap (Mos)</span>
                                              </div>
                                            </>
                                          )}
@@ -823,65 +843,64 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                             </div>
                           )}
                         </Tabs>
-                      </div>
                     </div>
                   )}
 
                   {/* STEP 3: Parent & Address */}
                   {currentStep === 3 && (
-                    <div className="space-y-5">
-                      <div className="space-y-4 border-b border-muted/20 pb-4">
-                        <h3 className="font-bold text-sm tracking-tight">Primary Parent / Guardian</h3>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Full Name *</label>
-                            <Input {...register("parent1Name")} />
-                            {errors.parent1Name && <span className="text-[10px] text-destructive">{errors.parent1Name.message}</span>}
+                    <div className="space-y-6">
+                      <div className="space-y-5 border-b border-slate-200/60 pb-6">
+                        <h3 className="font-extrabold text-sm tracking-tight text-slate-800">Primary Parent / Guardian</h3>
+                        <div className="grid grid-cols-2 gap-5">
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Full Name *</label>
+                            <Input {...register("parent1Name")} className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-slate-50/50" />
+                            {errors.parent1Name && <span className="text-[10px] font-medium text-destructive">{errors.parent1Name.message}</span>}
                           </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Relationship *</label>
-                            <Input {...register("parent1Relation")} />
-                            {errors.parent1Relation && <span className="text-[10px] text-destructive">{errors.parent1Relation.message}</span>}
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Relationship *</label>
+                            <Input {...register("parent1Relation")} className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-slate-50/50" />
+                            {errors.parent1Relation && <span className="text-[10px] font-medium text-destructive">{errors.parent1Relation.message}</span>}
                           </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Contact No. (10-Digit) *</label>
-                            <Input {...register("parent1Contact")} maxLength={10} />
-                            {errors.parent1Contact && <span className="text-[10px] text-destructive">{errors.parent1Contact.message}</span>}
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Contact No. (10-Digit) *</label>
+                            <Input {...register("parent1Contact")} maxLength={10} className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-slate-50/50" />
+                            {errors.parent1Contact && <span className="text-[10px] font-medium text-destructive">{errors.parent1Contact.message}</span>}
                           </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">WhatsApp Number</label>
-                            <Input type="text" {...register("parent1Whatsapp")} placeholder="+91..." />
-                            {errors.parent1Whatsapp && <span className="text-[10px] text-destructive">{errors.parent1Whatsapp.message}</span>}
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">WhatsApp Number</label>
+                            <Input type="text" {...register("parent1Whatsapp")} placeholder="+91..." className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-slate-50/50" />
+                            {errors.parent1Whatsapp && <span className="text-[10px] font-medium text-destructive">{errors.parent1Whatsapp.message}</span>}
                           </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Occupation</label>
-                            <Input {...register("parent1Occupation")} />
+                          <div className="col-span-2 space-y-1.5">
+                            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Occupation</label>
+                            <Input {...register("parent1Occupation")} className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-slate-50/50" />
                           </div>
                         </div>
                       </div>
 
-                      <div className="space-y-4">
-                        <h3 className="font-bold text-sm tracking-tight">Residential Address</h3>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Address Line 1 *</label>
-                          <Input {...register("addressLine1")} />
-                          {errors.addressLine1 && <span className="text-[10px] text-destructive">{errors.addressLine1.message}</span>}
+                      <div className="space-y-5">
+                        <h3 className="font-extrabold text-sm tracking-tight text-slate-800">Residential Address</h3>
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Address Line 1 *</label>
+                          <Input {...register("addressLine1")} className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-slate-50/50" />
+                          {errors.addressLine1 && <span className="text-[10px] font-medium text-destructive">{errors.addressLine1.message}</span>}
                         </div>
-                        <div className="grid grid-cols-3 gap-4">
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">City *</label>
-                            <Input {...register("city")} />
-                            {errors.city && <span className="text-[10px] text-destructive">{errors.city.message}</span>}
+                        <div className="grid grid-cols-3 gap-5">
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">City *</label>
+                            <Input {...register("city")} className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-slate-50/50" />
+                            {errors.city && <span className="text-[10px] font-medium text-destructive">{errors.city.message}</span>}
                           </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">State *</label>
-                            <Input {...register("state")} />
-                            {errors.state && <span className="text-[10px] text-destructive">{errors.state.message}</span>}
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">State *</label>
+                            <Input {...register("state")} className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-slate-50/50" />
+                            {errors.state && <span className="text-[10px] font-medium text-destructive">{errors.state.message}</span>}
                           </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Zip Code *</label>
-                            <Input {...register("zipCode")} />
-                            {errors.zipCode && <span className="text-[10px] text-destructive">{errors.zipCode.message}</span>}
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Zip Code *</label>
+                            <Input {...register("zipCode")} className="h-11 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl bg-slate-50/50" />
+                            {errors.zipCode && <span className="text-[10px] font-medium text-destructive">{errors.zipCode.message}</span>}
                           </div>
                         </div>
                       </div>
@@ -891,9 +910,12 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                   {/* STEP 4: Documents */}
                   {currentStep === 4 && (
                     <div className="space-y-5">
-                      <p className="text-sm text-muted-foreground mb-4 border-b border-muted/20 pb-4">
-                        Please upload clear digital copies of the requested documents. Accepted formats are PDF, JPEG, and PNG (Max 5MB each).
-                      </p>
+                      <div className="bg-slate-50 p-4 border border-slate-200 rounded-xl flex items-start gap-3 mb-6">
+                         <Info className="h-5 w-5 text-slate-400 mt-0.5 shrink-0" />
+                         <p className="text-sm text-slate-600 leading-relaxed">
+                           Please upload clear digital copies of the requested documents. Accepted formats are PDF, JPEG, and PNG (Max 5MB each).
+                         </p>
+                      </div>
                       
                       <div className="grid grid-cols-2 gap-4">
                         <DocumentDropzone docType="birthCertificate" label="Birth Certificate" file={documents.birthCertificate} onDropFile={handleDropFile} />
@@ -907,29 +929,30 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
               </AnimatePresence>
 
               {/* Wizard Footer Navigation */}
-              <div className="mt-8 pt-4 border-t border-muted/20 flex justify-between items-center bg-background shrink-0">
+              <div className="mt-auto pt-6 pb-2 border-t border-slate-200/60 flex justify-between items-center bg-white shrink-0 sticky bottom-0 z-20">
                 <Button 
                   type="button" 
                   variant="outline" 
                   onClick={prevStep}
                   disabled={currentStep === 1}
+                  className="h-12 px-6 rounded-xl border-slate-200 text-slate-600 font-bold hover:bg-slate-50 disabled:opacity-30 transition-all cursor-pointer"
                 >
                   <ChevronLeft className="mr-2 h-4 w-4" /> Back
                 </Button>
                 
                 {currentStep < STEPS.length ? (
-                  <Button type="button" onClick={nextStep}>
+                  <Button type="button" onClick={nextStep} className="h-12 px-8 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold tracking-wide transition-all shadow-md shadow-slate-900/10 cursor-pointer">
                     Next Step <ChevronRight className="ml-2 h-4 w-4" />
                   </Button>
                 ) : (
-                  <Button type="submit" disabled={isSubmitting} className="bg-emerald-600 hover:bg-emerald-700 text-primary-foreground min-w-[160px]">
+                  <Button type="submit" disabled={isSubmitting} className="h-12 px-8 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold tracking-wide transition-all shadow-md shadow-emerald-600/20 cursor-pointer min-w-[160px]">
                     {isSubmitting ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing...
                       </>
                     ) : (
                       <>
-                        <CheckCircle2 className="mr-2 h-4 w-4" /> Submit Application
+                        <CheckCircle2 className="mr-2 h-4 w-4" /> Complete Enrollment
                       </>
                     )}
                   </Button>
