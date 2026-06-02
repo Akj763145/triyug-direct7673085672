@@ -1080,6 +1080,45 @@ export function StudentProfile() {
 
   const nextDueDate = computedInvoices.filter(i => (i.computedStatus === 'Upcoming' || i.computedStatus === 'Overdue' || i.computedStatus === 'Partial')).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0]?.dueDate || 'None';
 
+  const installmentInvoices = computedInvoices.filter(i => 
+    !i.category?.toLowerCase().includes('downpayment') && 
+    !i.category?.toLowerCase().includes('registration') &&
+    i.totalAmount > 0
+  ).sort((a,b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+
+  let paymentBasisText = "Lump Sum";
+  let paymentBasisAmount = installmentInvoices[0]?.totalAmount || totalNetInvoiceAmount;
+  
+  if (installmentInvoices.length > 1) {
+    paymentBasisText = `${installmentInvoices.length} Installments`;
+    paymentBasisAmount = installmentInvoices[0].totalAmount;
+    
+    const labels = installmentInvoices.map(i => i.category?.toLowerCase() || "");
+    if (labels.some(l => l.includes('quarter'))) paymentBasisText = "Quarterly Basis";
+    else if (labels.some(l => l.includes('half'))) paymentBasisText = "Half-Yearly Basis";
+    else if (labels.some(l => l.includes('annual'))) paymentBasisText = "Annually Basis";
+    else if (labels.some(l => l.includes('month') || l.includes('term') || l.includes('installment') || l.includes('emi'))) paymentBasisText = "Monthly Basis";
+    else paymentBasisText = "Monthly Basis"; // general fallback for multi-term
+  } else if (installmentInvoices.length === 1) {
+    paymentBasisText = "Full Payment";
+    paymentBasisAmount = installmentInvoices[0].totalAmount;
+  }
+
+  let formattedPaymentBasis = "";
+  if (paymentBasisText === "Monthly Basis") {
+    formattedPaymentBasis = `MONTHLY ₹${paymentBasisAmount.toLocaleString()}/-MONTH`;
+  } else if (paymentBasisText === "Quarterly Basis") {
+    formattedPaymentBasis = `QUARTERLY ₹${paymentBasisAmount.toLocaleString()}/-QUARTER`;
+  } else if (paymentBasisText === "Half-Yearly Basis") {
+    formattedPaymentBasis = `HALF-YEARLY ₹${paymentBasisAmount.toLocaleString()}/-HALF`;
+  } else if (paymentBasisText === "Annually Basis") {
+    formattedPaymentBasis = `ANNUALLY ₹${paymentBasisAmount.toLocaleString()}/-YEAR`;
+  } else if (paymentBasisText === "Full Payment") {
+    formattedPaymentBasis = `FULL PAYMENT ₹${paymentBasisAmount.toLocaleString()}`;
+  } else {
+    formattedPaymentBasis = `LUMP SUM ₹${paymentBasisAmount.toLocaleString()}`;
+  }
+
   const attendanceRate = (attendance.filter(a => a.status === 'Present').length / attendance.length) * 100;
   const submissionRate = (assignments.filter(a => a.status !== 'Pending').length / assignments.length) * 100;
 
@@ -1955,12 +1994,20 @@ export function StudentProfile() {
                   </CardTitle>
                </CardHeader>
                <CardContent className="space-y-6">
-                  {/* Batch Details Badge */}
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-muted/40 border border-muted/20 mt-1">
-                     <GraduationCap className="h-3 w-3 text-muted-foreground" />
-                     <span className="text-[10px] font-black uppercase tracking-widest text-foreground">
-                        BATCH: {student?.grade || 'UNASSIGNED'}
-                     </span>
+                  {/* Batch & Payment Basis Details */}
+                  <div className="flex flex-wrap items-center gap-2 mt-1">
+                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-muted/40 border border-muted/20">
+                        <GraduationCap className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-[10px] font-black uppercase tracking-widest text-foreground">
+                           BATCH: {student?.grade || 'UNASSIGNED'}
+                        </span>
+                     </div>
+                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-primary/10 border border-primary/20 text-primary">
+                        <Calendar className="h-3 w-3" />
+                        <span className="text-[10px] font-black uppercase tracking-widest">
+                           {formattedPaymentBasis}
+                        </span>
+                     </div>
                   </div>
 
                   <div className="flex items-center justify-between pt-2">
