@@ -160,50 +160,75 @@ export function FeeEmiPreview({
   const allocatedClassName = Math.abs(remaining - totalEmis) > 1 ? "text-red-500 font-bold" : "text-emerald-500 font-bold";
 
   return (
-    <div className="mt-4 border border-input rounded-md overflow-hidden bg-muted/5 font-sans">
-      <div className="flex justify-between items-center p-3 bg-muted/10 border-b border-input">
-        <div>
-           <h4 className="text-xs font-bold uppercase tracking-wider">{isMonthlyMode ? 'Monthly Fee Preview' : 'EMI Schedule Preview'}</h4>
+    <div className="mt-4 border border-slate-200/80 rounded-xl overflow-hidden bg-slate-50/30 shadow-sm font-sans transition-all duration-300">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 bg-white/70 backdrop-blur-sm border-b border-slate-150/80 gap-3">
+        <div className="space-y-1">
+           <div className="flex items-center gap-2">
+             <span className="w-1.5 h-3 bg-emerald-500 rounded-full"></span>
+             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">{isMonthlyMode ? 'Monthly Fee Structure' : 'EMI Schedule Plan'}</h4>
+           </div>
            {isMonthlyMode ? (
-             <p className="text-[10px] text-muted-foreground mt-0.5">Total Months: <span className="font-bold text-foreground">{emis.length}</span> | Cumulative Fee: <span className="text-emerald-500 font-bold">₹{totalEmis.toLocaleString()}</span></p>
+             <p className="text-[11px] text-slate-500 mt-0.5">
+               Total Months: <span className="font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded-md">{emis.length}</span> | Cumulative Fee: <span className="text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">₹{totalEmis.toLocaleString('en-IN')}</span>
+             </p>
            ) : (
-             <p className="text-[10px] text-muted-foreground mt-0.5">Total remaining: ₹{remaining.toLocaleString()} | Allocated: <span className={allocatedClassName}>₹{totalEmis.toLocaleString()}</span></p>
+             <p className="text-[11px] text-slate-500 mt-0.5">
+               Total remaining: <span className="font-semibold text-slate-800">₹{remaining.toLocaleString('en-IN')}</span> | Allocated: <span className={`${allocatedClassName} bg-emerald-50/50 px-1.5 py-0.5 rounded-md`}>₹{totalEmis.toLocaleString('en-IN')}</span>
+             </p>
            )}
         </div>
-        <Button size="sm" variant="outline" className="h-7 text-[10px] px-2 gap-1.5" onClick={calculateEmis}>
-           <RefreshCcw className="h-3 w-3" /> Reset / Auto-Distribute
+        <Button 
+          size="sm" 
+          variant="outline" 
+          className="h-8 text-xs px-3 gap-1.5 bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900 shadow-sm font-medium transition-all" 
+          onClick={calculateEmis}
+        >
+           <RefreshCcw className="h-3.5 w-3.5 animate-hover-spin" /> Auto-Distribute
         </Button>
       </div>
-      <div className="p-2 space-y-1 max-h-60 overflow-y-auto custom-scrollbar">
+      <div className="p-3 bg-slate-50/50 space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
          {emis.map((emi, i) => (
-            <div key={emi.id} className="flex items-center gap-2 text-sm bg-background p-2 rounded border border-border/50">
-               <div className="w-8 flex justify-center shrink-0">
-                  <span className="text-[10px] font-black text-muted-foreground">#{i+1}</span>
+            <div 
+              key={emi.id} 
+              className="group flex items-center justify-between gap-3 text-sm bg-white p-3 rounded-lg border border-slate-200/70 hover:border-emerald-500/30 hover:shadow-sm transition-all duration-200"
+            >
+               <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-7 w-7 rounded-md bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 group-hover:bg-emerald-50 group-hover:border-emerald-100 transition-colors">
+                     <span className="text-[11px] font-black text-slate-400 group-hover:text-emerald-600 transition-colors">#{i+1}</span>
+                  </div>
+                  <div className="min-w-0 space-y-0.5">
+                     <span className="text-xs font-semibold text-slate-800 tracking-tight block truncate">{emi.label}</span>
+                     <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                        <svg className="h-3 w-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <span>{emi.date}</span>
+                     </div>
+                  </div>
                </div>
-               <div className="flex-1 min-w-0">
-                  <span className="text-xs font-medium text-foreground">{emi.label}</span>
-                  <div className="text-[10px] text-muted-foreground">{emi.date}</div>
+               
+               <div className="flex items-center gap-2">
+                  <div className="w-28 shrink-0 flex items-center relative">
+                     <span className="absolute left-3 text-xs font-black text-slate-400 select-none group-focus-within:text-emerald-500 transition-colors">₹</span>
+                     <input 
+                       type="number"
+                       value={emi.amount}
+                       onChange={(e) => handleManualEdit(i, parseFloat(e.target.value) || 0)}
+                       className="h-9 w-full rounded-md border border-slate-200 bg-slate-50/30 pl-7 pr-3 py-1 text-xs font-mono font-bold text-slate-800 hover:bg-slate-100/50 focus:bg-white focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20 shadow-inner outline-none transition-all duration-200"
+                     />
+                  </div>
+                  {!isMonthlyMode && (
+                    <Button
+                      variant="ghost" 
+                      size="icon" 
+                      className={`h-9 w-9 shrink-0 rounded-md transition-all ${emi.locked ? 'text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-100' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-150'}`}
+                      onClick={(e) => { e.preventDefault(); toggleLock(i); }}
+                      title={emi.locked ? "Unlock EMI" : "Lock EMI amount"}
+                    >
+                      {emi.locked ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+                    </Button>
+                  )}
                </div>
-               <div className="w-24 shrink-0 flex items-center relative">
-                  <span className="absolute left-2 text-[10px] font-bold text-muted-foreground">₹</span>
-                  <Input 
-                    type="number"
-                    value={emi.amount}
-                    onChange={(e) => handleManualEdit(i, parseFloat(e.target.value) || 0)}
-                    className="h-8 pl-5 py-1 text-xs font-mono font-bold bg-muted/20"
-                  />
-               </div>
-               {!isMonthlyMode && (
-                 <Button
-                   variant="ghost" 
-                   size="icon" 
-                   className={`h-8 w-8 shrink-0 ${emi.locked ? 'text-blue-500 bg-blue-500/10' : 'text-muted-foreground'}`}
-                   onClick={(e) => { e.preventDefault(); toggleLock(i); }}
-                   title={emi.locked ? "Unlock EMI" : "Lock EMI amount"}
-                 >
-                   {emi.locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
-                 </Button>
-               )}
             </div>
          ))}
       </div>

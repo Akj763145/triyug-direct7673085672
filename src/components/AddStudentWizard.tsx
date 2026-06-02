@@ -6,7 +6,7 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Checkbox } from "./ui/checkbox";
-import { ChevronRight, ChevronLeft, Save, Upload, User, Users, GraduationCap, FileText, CheckCircle2, Loader2 } from "lucide-react";
+import { ChevronRight, ChevronLeft, Save, Upload, User, Users, GraduationCap, FileText, CheckCircle2, Loader2, IndianRupee, CalendarDays, Coins, Info } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useDropzone } from "react-dropzone";
 import { api } from "../lib/api";
@@ -679,40 +679,69 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                           </TabsList>
                                                    {feeTab ? (
                             <div className="space-y-6 mt-6">
-                              <TabsContent value="monthly" className="pt-0 border border-border/50 rounded-lg p-4 bg-card mt-0 space-y-4">
-                                 <div className="grid grid-cols-2 gap-4">
-                                   <div className="space-y-1">
-                                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Monthly Fee Amount *</label>
-                                     <Input 
-                                       type="number" 
-                                       {...register("feePerInstallmentAmount")} 
-                                       placeholder="e.g. 5000" 
-                                     />
+                              <TabsContent value="monthly" className="pt-0 border border-slate-200 rounded-xl p-5 bg-white mt-0 space-y-5 shadow-sm">
+                                 <div className="grid grid-cols-2 gap-5">
+                                   <div className="space-y-1.5">
+                                     <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Monthly Fee Amount *</label>
+                                     <div className="relative rounded-lg shadow-sm">
+                                       <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                                         <IndianRupee className="h-4 w-4 text-slate-400" />
+                                       </div>
+                                       {feeTab === "monthly" && (
+                                         <Input 
+                                           type="number" 
+                                           {...register("feePerInstallmentAmount")} 
+                                           placeholder="e.g. 5000" 
+                                           className="pl-9 h-10 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-lg bg-slate-50/30 font-medium"
+                                         />
+                                       )}
+                                       {!feeTab || feeTab !== "monthly" ? <div className="h-10"></div> : null}
+                                     </div>
                                      {errors.feePerInstallmentAmount && (
-                                       <span className="text-[10px] text-destructive">{errors.feePerInstallmentAmount.message}</span>
+                                       <span className="text-[10px] text-destructive font-medium">{errors.feePerInstallmentAmount.message}</span>
                                      )}
                                    </div>
-                                   <div className="space-y-1">
-                                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Target End Date *</label>
-                                     <Input 
-                                       type="date" 
-                                       {...register("targetEndMonth")} 
-                                     />
+                                   <div className="space-y-1.5">
+                                     <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Target End Date *</label>
+                                     <div className="relative rounded-lg shadow-sm">
+                                       <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                                         <CalendarDays className="h-4 w-4 text-slate-400" />
+                                       </div>
+                                       {feeTab === "monthly" && (
+                                         <Input 
+                                           type="date" 
+                                           {...register("targetEndMonth")} 
+                                           className="pl-9 h-10 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-lg bg-slate-50/30 font-medium text-slate-800"
+                                         />
+                                       )}
+                                       {!feeTab || feeTab !== "monthly" ? <div className="h-10"></div> : null}
+                                     </div>
                                    </div>
                                  </div>
 
                                  {watch("targetEndMonth") && (
-                                   <div className="p-3 bg-muted/10 border border-muted/20 rounded-md text-xs font-medium text-muted-foreground flex justify-between items-center">
-                                     <span>Calculated duration:</span>
-                                     <span className="font-bold text-foreground text-sm">
-                                       {(() => {
-                                         const startDate = new Date(watch("enrollmentDate") || new Date().toISOString().split('T')[0]);
-                                         const endDate = new Date(watch("targetEndMonth") || "2027-02-28");
-                                         let monthsDiff = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth());
-                                         return monthsDiff <= 0 ? 1 : monthsDiff + 1;
-                                       })()}{' '}
-                                       Months / Installments
-                                     </span>
+                                   <div className="p-4 bg-gradient-to-r from-emerald-50/70 to-teal-50/70 border border-emerald-100 rounded-xl flex items-center justify-between shadow-sm/5 gap-3">
+                                     <div className="flex items-center gap-3">
+                                        <div className="h-10 w-10 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 rounded-xl flex items-center justify-center shrink-0">
+                                           <Coins className="h-5 w-5" />
+                                        </div>
+                                        <div>
+                                           <span className="text-[10px] uppercase font-black tracking-widest text-emerald-600 block">Calculation Period</span>
+                                           <span className="text-xs font-medium text-slate-500">Duration based on dates:</span>
+                                        </div>
+                                     </div>
+                                     <div className="text-right">
+                                        <span className="text-xl font-black text-slate-900 tracking-tight block">
+                                          {(() => {
+                                            const startDate = new Date(watch("enrollmentDate") || new Date().toISOString().split('T')[0]);
+                                            const endDate = new Date(watch("targetEndMonth") || "2027-02-28");
+                                            let monthsDiff = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth());
+                                            return monthsDiff <= 0 ? 1 : monthsDiff + 1;
+                                          })()}{' '}
+                                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider inline">Months</span>
+                                        </span>
+                                        <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider block">Installments Due</span>
+                                     </div>
                                    </div>
                                  )}
 
@@ -731,12 +760,16 @@ export function AddStudentWizard({ open, onOpenChange, onSuccess }: { open: bool
                                  <div className="grid grid-cols-2 gap-4 border border-border/50 rounded-lg p-4 bg-muted/10 mb-2">
                                    <div className="space-y-1">
                                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total Course Fee *</label>
-                                     <Input type="number" {...register("feePerInstallmentAmount")} placeholder="e.g. 50000" />
+                                     {feeTab === "annual" && (
+                                        <Input type="number" {...register("feePerInstallmentAmount")} placeholder="e.g. 50000" />
+                                     )}
                                      {errors.feePerInstallmentAmount && <span className="text-[10px] text-destructive">{errors.feePerInstallmentAmount.message}</span>}
                                    </div>
                                    <div className="space-y-1">
                                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Initial Downpayment / Registration Fee</label>
-                                     <Input type="number" {...register("downpaymentAmount")} placeholder="Optional (e.g. 10000)" />
+                                     {feeTab === "annual" && (
+                                        <Input type="number" {...register("downpaymentAmount")} placeholder="Optional (e.g. 10000)" />
+                                     )}
                                    </div>
                                  </div>
 
