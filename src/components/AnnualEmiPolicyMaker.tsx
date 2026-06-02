@@ -47,10 +47,10 @@ export function AnnualEmiPolicyMaker({
 
       const newEmis = [];
       for (let i = 0; i < terms; i++) {
-          let termLabel = `Installment ${i + 1}`;
-          if (frequency === 'Monthly') termLabel = `Month ${i + 1}`;
-          else if (frequency === 'Quarterly') termLabel = `Quarter ${i + 1}`;
-          else if (frequency === 'Half-Yearly') termLabel = `Half ${i + 1}`;
+          let termLabel = `Annual Installment ${i + 1}`;
+          if (frequency === 'Monthly') termLabel = `Annual Month ${i + 1}`;
+          else if (frequency === 'Quarterly') termLabel = `Annual Quarter ${i + 1}`;
+          else if (frequency === 'Half-Yearly') termLabel = `Annual Half ${i + 1}`;
           
           const idue = new Date(startDate.getFullYear(), startDate.getMonth() + (i * gap), startDate.getDate());
 

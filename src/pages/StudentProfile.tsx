@@ -1090,6 +1090,9 @@ export function StudentProfile() {
     i.totalAmount > 0
   ).sort((a,b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 
+  const paidInstallmentsCount = installmentInvoices.filter(i => i.computedStatus === 'Paid').length;
+  const totalInstallmentsCount = installmentInvoices.length;
+
   let paymentBasisText = "Lump Sum";
   let paymentBasisAmount = installmentInvoices[0]?.totalAmount || totalNetInvoiceAmount;
   
@@ -1098,11 +1101,24 @@ export function StudentProfile() {
     paymentBasisAmount = installmentInvoices[0].totalAmount;
     
     const labels = installmentInvoices.map(i => i.category?.toLowerCase() || "");
-    if (labels.some(l => l.includes('quarter'))) paymentBasisText = "Quarterly Basis";
-    else if (labels.some(l => l.includes('half'))) paymentBasisText = "Half-Yearly Basis";
-    else if (labels.some(l => l.includes('annual'))) paymentBasisText = "Annually Basis";
-    else if (labels.some(l => l.includes('month') || l.includes('term') || l.includes('installment') || l.includes('emi'))) paymentBasisText = "Monthly Basis";
-    else paymentBasisText = "Monthly Basis"; // general fallback for multi-term
+    const isAnnualSystem = labels.some(l => l.includes('annual')) || 
+                           labels.some(l => /^month \d+/.test(l)) ||
+                           labels.some(l => /^quarter \d+/.test(l)) ||
+                           labels.some(l => /^half \d+/.test(l)) ||
+                           labels.some(l => /^installment \d+/.test(l));
+
+    if (isAnnualSystem) {
+      if (labels.some(l => l.includes('quarter'))) paymentBasisText = "Annual Plan (Quarterly)";
+      else if (labels.some(l => l.includes('half'))) paymentBasisText = "Annual Plan (Half-Yearly)";
+      else if (labels.some(l => l.includes('month'))) paymentBasisText = "Annual Plan (Monthly)";
+      else paymentBasisText = "Annual Plan";
+    } else {
+      if (labels.some(l => l.includes('quarter'))) paymentBasisText = "Quarterly Basis";
+      else if (labels.some(l => l.includes('half'))) paymentBasisText = "Half-Yearly Basis";
+      else if (labels.some(l => l.includes('annual'))) paymentBasisText = "Annually Basis";
+      else if (labels.some(l => l.includes('month') || l.includes('term') || l.includes('installment') || l.includes('emi'))) paymentBasisText = "Monthly Basis";
+      else paymentBasisText = "Monthly Basis"; // general fallback for multi-term
+    }
   } else if (installmentInvoices.length === 1) {
     paymentBasisText = "Full Payment";
     paymentBasisAmount = installmentInvoices[0].totalAmount;
@@ -1110,17 +1126,22 @@ export function StudentProfile() {
 
   let formattedPaymentBasis = "";
   if (paymentBasisText === "Monthly Basis") {
-    formattedPaymentBasis = `MONTHLY ₹${paymentBasisAmount.toLocaleString()}/-MONTH`;
+    formattedPaymentBasis = `MONTHLY ₹${paymentBasisAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/- MONTH`;
   } else if (paymentBasisText === "Quarterly Basis") {
-    formattedPaymentBasis = `QUARTERLY ₹${paymentBasisAmount.toLocaleString()}/-QUARTER`;
+    formattedPaymentBasis = `QUARTERLY ₹${paymentBasisAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/- QUARTER`;
   } else if (paymentBasisText === "Half-Yearly Basis") {
-    formattedPaymentBasis = `HALF-YEARLY ₹${paymentBasisAmount.toLocaleString()}/-HALF`;
+    formattedPaymentBasis = `HALF-YEARLY ₹${paymentBasisAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/- HALF`;
   } else if (paymentBasisText === "Annually Basis") {
-    formattedPaymentBasis = `ANNUALLY ₹${paymentBasisAmount.toLocaleString()}/-YEAR`;
+    formattedPaymentBasis = `ANNUALLY ₹${paymentBasisAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/- YEAR`;
+  } else if (paymentBasisText.startsWith("Annual Plan")) {
+    const cycle = paymentBasisText.includes("Monthly") ? "MONTH" : 
+                  paymentBasisText.includes("Quarterly") ? "QUARTER" : 
+                  paymentBasisText.includes("Half") ? "HALF" : "YEAR";
+    formattedPaymentBasis = `₹${paymentBasisAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/- ${cycle}`;
   } else if (paymentBasisText === "Full Payment") {
-    formattedPaymentBasis = `FULL PAYMENT ₹${paymentBasisAmount.toLocaleString()}`;
+    formattedPaymentBasis = `FULL PAYMENT ₹${paymentBasisAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   } else {
-    formattedPaymentBasis = `LUMP SUM ₹${paymentBasisAmount.toLocaleString()}`;
+    formattedPaymentBasis = `LUMP SUM ₹${paymentBasisAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
   const formatLedgerDate = (dateStr: string) => {
@@ -2104,6 +2125,16 @@ export function StudentProfile() {
                           ₹{totalDue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                        </p>
                     </div>
+                    <span className="hidden lg:block h-10 w-px bg-slate-200 self-center" />
+                    <div>
+                       <p className="text-xs text-gray-500 uppercase tracking-widest mb-1">Total Installments / EMIs</p>
+                       <p className="text-3xl font-light text-slate-800 tabular-nums flex items-baseline gap-2">
+                          <span>{totalInstallmentsCount}</span>
+                          <span className="text-xs font-bold text-teal-700 bg-teal-50 px-2.5 py-1 rounded border border-teal-100 shadow-xs">
+                             {paidInstallmentsCount} of {totalInstallmentsCount} Paid
+                          </span>
+                       </p>
+                    </div>
                  </div>
                  <Button 
                    className="bg-teal-600 hover:bg-teal-700 text-white rounded px-6 py-5 text-sm font-medium tracking-wide shadow-none transition-colors"
@@ -2113,14 +2144,37 @@ export function StudentProfile() {
                  </Button>
               </div>
 
-              {/* Monthly Basis Subscription Alert */}
-              {paymentBasisText === "Monthly Basis" ? (
+              {/* Monthly / Annual Basis Subscription Alert */}
+              {paymentBasisText.startsWith("Annual Plan") ? (
+                 <div className="p-4 bg-emerald-50/50 border border-emerald-250 rounded-sm text-emerald-950 text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                    <div className="flex items-center gap-3">
+                       <GraduationCap className="h-5 w-5 text-emerald-600 flex-shrink-0" />
+                       <div>
+                          <div className="flex items-center gap-2">
+                             <p className="font-semibold text-emerald-950">Active Fee Plan</p>
+                             <span className="px-2 py-0.5 bg-emerald-100/70 border border-emerald-250/20 text-emerald-800 text-[10px] font-bold rounded-full uppercase tracking-wider">Annual Fee System</span>
+                          </div>
+                          <p className="text-xs text-emerald-700">This student purchased this batch on a structured annual fee program with <strong className="font-bold text-emerald-900">{totalInstallmentsCount} active EMIs / installments</strong> ({paidInstallmentsCount} paid, {totalInstallmentsCount - paidInstallmentsCount} upcoming).</p>
+                       </div>
+                    </div>
+                    <div className="text-left sm:text-right">
+                       <p className="text-[10px] text-emerald-600 uppercase tracking-widest font-bold leading-none mb-1">
+                          {paymentBasisText.includes("Monthly") ? "MONTHLY COST BASIS" : 
+                           paymentBasisText.includes("Quarterly") ? "QUARTERLY COST BASIS" : 
+                           paymentBasisText.includes("Half") ? "HALF-YEARLY COST BASIS" : "ANNUAL COST BASIS"}
+                       </p>
+                       <p className="text-base font-black text-emerald-950 tabular-nums">
+                          {formattedPaymentBasis}
+                       </p>
+                    </div>
+                 </div>
+              ) : paymentBasisText === "Monthly Basis" ? (
                  <div className="p-4 bg-teal-50 border border-teal-200 rounded-sm text-teal-900 text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
                     <div className="flex items-center gap-3">
                        <Calendar className="h-5 w-5 text-teal-600 flex-shrink-0" />
                        <div>
                           <p className="font-semibold text-teal-950">Active Fee Plan</p>
-                          <p className="text-xs text-teal-700">This student purchased this batch on a monthly fee program.</p>
+                          <p className="text-xs text-teal-700">This student purchased this batch on a monthly fee program with <strong className="font-bold text-teal-950">{totalInstallmentsCount} active EMIs / installments</strong> ({paidInstallmentsCount} paid, {totalInstallmentsCount - paidInstallmentsCount} upcoming).</p>
                        </div>
                     </div>
                     <div className="text-left sm:text-right">
@@ -2136,7 +2190,7 @@ export function StudentProfile() {
                        <GraduationCap className="h-5 w-5 text-slate-600 flex-shrink-0" />
                        <div>
                           <p className="font-semibold text-slate-950">Payment Setup Status</p>
-                          <p className="text-xs text-slate-600">The billing schedule contract frequency has been established.</p>
+                          <p className="text-xs text-slate-600">The billing schedule contract frequency has been established with <strong className="font-bold text-slate-900">{totalInstallmentsCount} active EMIs / installments</strong> ({paidInstallmentsCount} paid, {totalInstallmentsCount - paidInstallmentsCount} upcoming).</p>
                        </div>
                     </div>
                     <div className="text-left sm:text-right">
