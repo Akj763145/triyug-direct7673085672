@@ -21,6 +21,7 @@ export function AnnualEmiPolicyMaker({
   onPolicyChange: (emis: { label: string, amount: number, percentage: number, date: string }[]) => void;
 }) {
   const [emis, setEmis] = useState<{ id: string; label: string; percentage: number; amount: number; locked: boolean; date: string }[]>([]);
+  const [isPristine, setIsPristine] = useState(true);
 
   const calculateDefaultPolicy = () => {
       let remaining = totalCourseFee - downpayment;
@@ -75,14 +76,18 @@ export function AnnualEmiPolicyMaker({
       }
       
       setEmis(newEmis);
+      setIsPristine(true);
       onPolicyChange(newEmis.map(e => ({ label: e.label, amount: e.amount, percentage: e.percentage, date: e.date })));
   };
 
   useEffect(() => {
-     calculateDefaultPolicy();
-  }, [totalCourseFee, downpayment, frequency, customTerms, customGap, enrollmentDate]);
+     if (isPristine) {
+        calculateDefaultPolicy();
+     }
+  }, [totalCourseFee, downpayment, frequency, customTerms, customGap, enrollmentDate, isPristine]);
   
   const handleAmountChange = (index: number, newAmount: number) => {
+      setIsPristine(false);
       let remaining = totalCourseFee - downpayment;
       if (remaining <= 0) return;
       
@@ -134,6 +139,7 @@ export function AnnualEmiPolicyMaker({
   };
   
   const handleDateChange = (index: number, newDate: string) => {
+      setIsPristine(false);
       const newEmis = [...emis];
       newEmis[index].date = newDate;
       setEmis(newEmis);
@@ -141,6 +147,7 @@ export function AnnualEmiPolicyMaker({
   };
 
   const toggleLock = (index: number) => {
+     setIsPristine(false);
      const newEmis = [...emis];
      newEmis[index].locked = !newEmis[index].locked;
      setEmis(newEmis);
