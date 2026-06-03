@@ -147,15 +147,15 @@ export function Fees() {
       } else {
         await api.updateInvoiceStatus(selectedInvoiceForPayment.id, "Paid");
         await api.addTransaction({
-           student_id: selectedInvoiceForPayment.studentId,
-           invoice_id: selectedInvoiceForPayment.id,
+           studentId: selectedInvoiceForPayment.studentId,
+           invoiceId: selectedInvoiceForPayment.id,
            date: paymentDate || new Date().toISOString().split("T")[0],
            description: `Payment for ${selectedInvoiceForPayment.title || selectedInvoiceForPayment.category}`,
            type: "Payment",
            category: "Fees",
            amount: selectedInvoiceForPayment.amount,
            status: "Success",
-           payment_method: "Cash"
+           paymentMethod: "Cash"
         });
       }
       setInvoices(prev => prev.map(inv => inv.id === selectedInvoiceForPayment.id ? { ...inv, status: "Paid" } : inv));

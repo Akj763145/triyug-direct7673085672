@@ -170,6 +170,7 @@ export const api = {
         const sId = p.student_id || p.id;
         return {
           id: sId,
+          created_at: p.created_at,
           name: `${p.first_name} ${p.last_name}`,
           grade: p.grade,
           contact: p.parent1_contact || 'N/A',

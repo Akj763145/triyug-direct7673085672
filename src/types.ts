@@ -24,6 +24,7 @@ export interface Batch {
 
 export interface Student {
   id: string;
+  created_at?: string;
   student_id?: string;
   name: string;
   grade: string;

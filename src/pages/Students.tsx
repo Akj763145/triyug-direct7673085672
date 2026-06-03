@@ -34,7 +34,7 @@ export function Students() {
   const [gradeFilter, setGradeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [batchFilter, setBatchFilter] = useState("All");
-  const [sortBy, setSortBy] = useState<"name" | "batch">("name");
+  const [sortBy, setSortBy] = useState<"name" | "batch" | "newest">("newest");
   const [batches, setBatches] = useState<any[]>([]);
 
   // Pagination
@@ -105,6 +105,14 @@ export function Students() {
         if (!batchA) return 1; // Put "No Batch" at the bottom
         if (!batchB) return -1;
         return batchA.localeCompare(batchB);
+      } else if (sortBy === "newest") {
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        // If created_at is strictly identical (e.g., both 0 or equal date), fallback to name reversed or string comparison of ID
+        if (dateB === dateA) {
+          return b.id.localeCompare(a.id);
+        }
+        return dateB - dateA;
       } else {
         return a.name.localeCompare(b.name);
       }
@@ -335,9 +343,10 @@ export function Students() {
           <div>
             <select 
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as "name" | "batch")}
+              onChange={(e) => setSortBy(e.target.value as "name" | "batch" | "newest")}
               className="w-full h-10 px-3 py-2 bg-primary/5 hover:bg-primary/10 border border-primary/20 rounded-md text-sm font-semibold text-primary focus:outline-none focus:ring-1 focus:ring-gold appearance-none cursor-pointer transition-colors"
             >
+              <option value="newest">Sort: Newest First 🕒</option>
               <option value="name">Sort: Name (A-Z)</option>
               <option value="batch">Sort: Batch Wise 🗂️</option>
             </select>
