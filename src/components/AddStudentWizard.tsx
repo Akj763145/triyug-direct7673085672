@@ -38,7 +38,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "./ui/tabs";
 const wizardSchema = z.object({
   firstName: z.string().min(2, "Required"),
   lastName: z.string().min(2, "Required"),
-  dateOfBirth: z.string().min(1, "DOB is required"),
+  dateOfBirth: z.string().optional(),
   enrollmentDate: z.string().min(1, "Enrollment Date is required"),
   gender: z.string().min(1, "Required"),
   nationality: z.string().default("Domestic"),
@@ -252,7 +252,6 @@ export function AddStudentWizard({
       fieldsToValidate = [
         "firstName",
         "lastName",
-        "dateOfBirth",
         "enrollmentDate",
         "gender",
         "grade",
@@ -332,7 +331,7 @@ export function AddStudentWizard({
       const payload = {
         first_name: data.firstName,
         last_name: data.lastName,
-        date_of_birth: data.dateOfBirth,
+        date_of_birth: data.dateOfBirth || "1900-01-01",
         // enrollment_date: data.enrollmentDate, // Removed to fix DB insert error
         gender: data.gender,
         nationality: data.nationality,
@@ -731,7 +730,7 @@ export function AddStudentWizard({
                       <div className="grid grid-cols-2 gap-5">
                         <div className="space-y-1.5">
                           <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                            Date of Birth *
+                            Date of Birth
                           </label>
                           <Input
                             type="date"

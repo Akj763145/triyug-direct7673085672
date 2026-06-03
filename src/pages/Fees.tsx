@@ -1,12 +1,22 @@
 import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent } from "../components/ui/card";
-import { IndianRupee, X, Calendar, User, Send, FileText } from "lucide-react";
+import { IndianRupee, X, Calendar, User, Send, FileText, CheckCircle2 } from "lucide-react";
 import { api, apiCache } from "../lib/api";
 import { Invoice } from "../types";
 import { Skeleton } from "../components/ui/skeleton";
 import { motion, AnimatePresence } from "motion/react";
 import { isSameMonth, subMonths, format } from "date-fns";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "../components/ui/dialog";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
 
 export function Fees() {
   const [invoices, setInvoices] = useState<Invoice[]>(() => {
@@ -14,6 +24,13 @@ export function Fees() {
   });
   const [loading, setLoading] = useState(() => !apiCache.has('invoices'));
   const [selectedList, setSelectedList] = useState<'collected' | 'overdue' | null>(null);
+
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<Invoice | null>(null);
+  const [paymentDate, setPaymentDate] = useState<string>(
+    new Date().toISOString().split("T")[0],
+  );
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   useEffect(() => {
     const loadInvoices = async () => {
@@ -88,11 +105,67 @@ export function Fees() {
   }, [invoices]);
 
   const handleStatusChange = async (id: string, newStatus: string) => {
+    if (newStatus === "Paid") {
+      const inv = invoices.find(i => i.id === id);
+      if (inv) {
+        setSelectedInvoiceForPayment(inv);
+        setPaymentDialogOpen(true);
+      }
+      return;
+    }
+
     try {
+      if (newStatus === "Overdue" || newStatus === "Pending") {
+        await api.deleteTransactionsByInvoice(id);
+      }
       await api.updateInvoiceStatus(id, newStatus);
       setInvoices(prev => prev.map(inv => inv.id === id ? { ...inv, status: newStatus as any } : inv));
     } catch (err) {
       console.error("Failed to update status", err);
+    }
+  };
+
+  const processSecurePaymentForFee = async () => {
+    if (!selectedInvoiceForPayment) return;
+    setIsProcessingPayment(true);
+    try {
+      // Use the RPC if available, otherwise just use addTransaction
+      const { supabase } = await import("../lib/supabase");
+      if (supabase) {
+        // Find if this is an installment invoice, or normal. process_installment_payment_v5 works for both
+        const { error } = await supabase.rpc("process_installment_payment_v5", {
+          p_invoice_id: selectedInvoiceForPayment.id,
+          p_student_id: selectedInvoiceForPayment.studentId,
+          p_amount: selectedInvoiceForPayment.amount,
+          p_payment_method: "Cash",
+          p_reference_id: `SYS-${Date.now()}`,
+          p_adjustment_amount: 0,
+          p_adjustment_title: "0",
+          p_payment_date: paymentDate || new Date().toISOString()
+        });
+        if (error) throw error;
+      } else {
+        await api.updateInvoiceStatus(selectedInvoiceForPayment.id, "Paid");
+        await api.addTransaction({
+           student_id: selectedInvoiceForPayment.studentId,
+           invoice_id: selectedInvoiceForPayment.id,
+           date: paymentDate || new Date().toISOString().split("T")[0],
+           description: `Payment for ${selectedInvoiceForPayment.title || selectedInvoiceForPayment.category}`,
+           type: "Payment",
+           category: "Fees",
+           amount: selectedInvoiceForPayment.amount,
+           status: "Success",
+           payment_method: "Cash"
+        });
+      }
+      setInvoices(prev => prev.map(inv => inv.id === selectedInvoiceForPayment.id ? { ...inv, status: "Paid" } : inv));
+      setPaymentDialogOpen(false);
+      setSelectedInvoiceForPayment(null);
+    } catch (err) {
+      console.error("Failed to process payment:", err);
+      alert("Failed to process payment");
+    } finally {
+      setIsProcessingPayment(false);
     }
   };
 
@@ -309,6 +382,67 @@ export function Fees() {
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* Payment Confirmation Dialog for Fees */}
+      <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+              <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+              Confirm Payment Collection
+            </DialogTitle>
+            <DialogDescription className="text-sm pt-2">
+              Please enter the date this payment was actually received. This will generate a transaction in the student's ledger.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="flex justify-between border-b pb-2 text-sm">
+              <span className="text-muted-foreground font-medium">Invoice Amount</span>
+              <span className="font-bold text-lg text-emerald-600">
+                ₹{selectedInvoiceForPayment?.amount?.toLocaleString() || 0}
+              </span>
+            </div>
+            <div className="flex justify-between border-b pb-2 text-sm">
+              <span className="text-muted-foreground font-medium">Student</span>
+              <span className="font-medium text-slate-700">
+                {selectedInvoiceForPayment?.studentName} 
+              </span>
+            </div>
+            <div className="space-y-2 mt-4">
+              <label className="text-sm font-bold text-slate-700 block">Collection Date</label>
+              <Input 
+                type="date"
+                value={paymentDate}
+                max={new Date().toISOString().split("T")[0]}
+                onChange={(e) => setPaymentDate(e.target.value)}
+                className="w-full font-mono mt-1"
+                required
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPaymentDialogOpen(false);
+                setSelectedInvoiceForPayment(null);
+              }}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 bg-emerald-600 text-white hover:bg-emerald-700"
+              onClick={processSecurePaymentForFee}
+              disabled={!paymentDate || isProcessingPayment}
+            >
+              {isProcessingPayment ? "Processing..." : "Confirm Collection"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 }

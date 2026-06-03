@@ -67,6 +67,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "../components/ui/dialog";
 import {
   Table,
@@ -184,9 +185,7 @@ export function StudentProfile() {
     null,
   );
   const [paymentAmount, setPaymentAmount] = useState<string>("");
-  const [collectedDate, setCollectedDate] = useState<string>(
-    new Date().toISOString().split("T")[0],
-  );
+  const [collectedDate, setCollectedDate] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState<
     "UPI" | "Cash" | "Cheque" | "Card"
   >("UPI");
@@ -196,6 +195,113 @@ export function StudentProfile() {
   const [showInstallments, setShowInstallments] = useState(false);
   const [receiptData, setReceiptData] = useState<any>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [isPaymentConfirmDialogOpen, setIsPaymentConfirmDialogOpen] =
+    useState(false);
+
+  const processSecurePayment = async () => {
+    setIsPaymentConfirmDialogOpen(false);
+    setIsProcessingPayment(true);
+    try {
+      const timestamp = new Date().toISOString();
+      const amount = Number(paymentAmount);
+      const adjustment = Number(adjustmentAmount) || 0;
+
+      // Secure Backend Logic: Use Supabase database RPC only
+      if (supabase && id) {
+        const { data, error } = await supabase.rpc(
+          "process_installment_payment_v5",
+          {
+            p_invoice_id: selectedInvoiceId,
+            p_student_id: student?.id,
+            p_amount: amount,
+            p_payment_method: paymentMethod,
+            p_reference_id: paymentRefId || `MAN-${Date.now()}`,
+            p_adjustment_amount: adjustment,
+            p_adjustment_title:
+              adjustment > 0 ? "Late Fee" : "Discount/Scholarship",
+            p_payment_date: collectedDate,
+          },
+        );
+
+        if (error) {
+          console.error("RPC Error:", error);
+          alert(`Payment processing failed: ${error.message}`);
+        } else {
+          // If adjustment is specified, create an adjustment transaction client-side to be 100% sure it is tracked!
+          if (adjustment !== 0) {
+            try {
+              await supabase.from("transactions").insert({
+                id:
+                  "ADJ-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+                student_id: student?.id || id,
+                invoice_id: selectedInvoiceId,
+                date: new Date().toISOString().split("T")[0],
+                description:
+                  (adjustment > 0 ? "Late Fee" : "Discount/Scholarship") +
+                  ` for ${invoices.find((inv) => inv.id === selectedInvoiceId)?.title || selectedInvoiceId}`,
+                type: adjustment < 0 ? "Discount" : "Late Fee",
+                category: adjustment < 0 ? "Discount" : "Fees",
+                amount: adjustment,
+                status: "Success",
+                payment_method: "SYSTEM",
+              });
+            } catch (adjErr) {
+              console.error("Error inserting adjustment txn:", adjErr);
+            }
+          }
+
+          // Successfully processed securely, refetch data
+          await fetchStudentData(true);
+          setIsPaymentDrawerOpen(false);
+          setPaymentAmount("");
+          setPaymentRefId("");
+          setSelectedInvoiceId(null);
+          setAdjustmentAmount("");
+          setCollectedDate("");
+
+          // Show Receipt automatically
+          if (data) {
+            setReceiptData({
+              ...data,
+              student_name: student?.name,
+              installment_title: invoices.find(
+                (inv) => inv.id === selectedInvoiceId,
+              )?.title,
+              payment_method: paymentMethod,
+              reference_id: paymentRefId || `MAN-${Date.now()}`,
+              date: new Date(collectedDate || new Date()).toLocaleDateString(
+                "en-IN",
+                {
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                },
+              ),
+              paid_amount: amount,
+              discount_amount:
+                data?.total_discount ||
+                (adjustment < 0 ? Math.abs(adjustment) : 0),
+            });
+            setShowReceiptModal(true);
+          }
+
+          setPaymentAmount("");
+          setPaymentRefId("");
+          setAdjustmentAmount("");
+          setSelectedInvoiceId(null);
+        }
+      } else {
+        alert(
+          "Database connection is not configured or Student ID is missing.",
+        );
+      }
+    } catch (e) {
+      console.error("Payment processing failed:", e);
+      alert("Failed to process payment");
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
 
   const handlePaymentSubmit = () => {
     if (!student || parseFloat(paymentAmount) <= 0) return;
@@ -223,6 +329,8 @@ export function StudentProfile() {
       setPaymentAmount("");
       setPaymentRefId("");
       setSelectedInvoiceId(null);
+      setAdjustmentAmount("");
+      setCollectedDate("");
     }, 800);
   };
 
@@ -1299,9 +1407,17 @@ export function StudentProfile() {
       let computedStatus = inv.status;
       const isPastDue = new Date(inv.dueDate).getTime() < today.getTime();
 
-      if (inv.status === "Paid" || amountPaid >= netInvoiceAmount) {
+      if (inv.status === "Overdue" || (inv.status === "Pending" && isPastDue)) {
+        computedStatus = "Overdue";
+      } else if (inv.status === "Pending") {
+        computedStatus = "Upcoming";
+      } else if (inv.status === "Paid") {
         computedStatus = "Paid";
-      } else if (inv.status === "Partial" || amountPaid > 0) {
+      } else if (inv.status === "Partial") {
+        computedStatus = "Partial";
+      } else if (amountPaid >= netInvoiceAmount && netInvoiceAmount > 0) {
+        computedStatus = "Paid";
+      } else if (amountPaid > 0) {
         computedStatus = "Partial";
       } else if (isPastDue) {
         computedStatus = "Overdue";
@@ -1907,99 +2023,6 @@ export function StudentProfile() {
                     </div>
                   </div>
 
-                  {/* Personal & Demographics */}
-                  <div className="border-t pt-4">
-                    <h3 className="font-serif text-sm font-bold text-primary mb-4 uppercase tracking-widest">
-                      Nationality & Identity
-                    </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                      <div className="space-y-2">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Nationality
-                        </label>
-                        <Input
-                          value={editForm.nationality || ""}
-                          onChange={(e) =>
-                            setEditForm({
-                              ...editForm,
-                              nationality: e.target.value,
-                            })
-                          }
-                          readOnly={!isEditing}
-                          placeholder="e.g. Indian"
-                          className={
-                            !isEditing
-                              ? "bg-muted/10 border-none font-medium pointer-events-none"
-                              : "bg-muted/30"
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Passport Number
-                        </label>
-                        <Input
-                          value={editForm.passport_number || ""}
-                          onChange={(e) =>
-                            setEditForm({
-                              ...editForm,
-                              passport_number: e.target.value,
-                            })
-                          }
-                          readOnly={!isEditing}
-                          placeholder="e.g. Z9999999"
-                          className={
-                            !isEditing
-                              ? "bg-muted/10 border-none font-medium pointer-events-none"
-                              : "bg-muted/30"
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Primary Language
-                        </label>
-                        <Input
-                          value={editForm.primary_language || ""}
-                          onChange={(e) =>
-                            setEditForm({
-                              ...editForm,
-                              primary_language: e.target.value,
-                            })
-                          }
-                          readOnly={!isEditing}
-                          placeholder="e.g. English"
-                          className={
-                            !isEditing
-                              ? "bg-muted/10 border-none font-medium pointer-events-none"
-                              : "bg-muted/30"
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Mother Tongue
-                        </label>
-                        <Input
-                          value={editForm.mother_tongue || ""}
-                          onChange={(e) =>
-                            setEditForm({
-                              ...editForm,
-                              mother_tongue: e.target.value,
-                            })
-                          }
-                          readOnly={!isEditing}
-                          placeholder="e.g. Hindi"
-                          className={
-                            !isEditing
-                              ? "bg-muted/10 border-none font-medium pointer-events-none"
-                              : "bg-muted/30"
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-
                   {/* Parent & Guardian 1 */}
                   <div className="border-t pt-4">
                     <h3 className="font-serif text-sm font-bold text-primary mb-4 uppercase tracking-widest">
@@ -2467,118 +2490,6 @@ export function StudentProfile() {
                             setEditForm({
                               ...editForm,
                               zip_code: e.target.value,
-                            })
-                          }
-                          readOnly={!isEditing}
-                          className={
-                            !isEditing
-                              ? "bg-muted/10 border-none font-medium pointer-events-none font-mono"
-                              : "bg-muted/30 font-mono"
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Medical & Emergency contact */}
-                  <div className="border-t pt-4">
-                    <h3 className="font-serif text-sm font-bold text-primary mb-4 uppercase tracking-widest">
-                      Medical Info & Emergency Contacts
-                    </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                      <div className="space-y-2">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Allergies
-                        </label>
-                        <Input
-                          value={editForm.allergies || ""}
-                          onChange={(e) =>
-                            setEditForm({
-                              ...editForm,
-                              allergies: e.target.value,
-                            })
-                          }
-                          readOnly={!isEditing}
-                          placeholder="None"
-                          className={
-                            !isEditing
-                              ? "bg-muted/10 border-none font-medium pointer-events-none"
-                              : "bg-muted/30"
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Medical Conditions
-                        </label>
-                        <Input
-                          value={editForm.medical_conditions || ""}
-                          onChange={(e) =>
-                            setEditForm({
-                              ...editForm,
-                              medical_conditions: e.target.value,
-                            })
-                          }
-                          readOnly={!isEditing}
-                          placeholder="None"
-                          className={
-                            !isEditing
-                              ? "bg-muted/10 border-none font-medium pointer-events-none"
-                              : "bg-muted/30"
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Emergency Contact Name
-                        </label>
-                        <Input
-                          value={editForm.emergency_contact_name || ""}
-                          onChange={(e) =>
-                            setEditForm({
-                              ...editForm,
-                              emergency_contact_name: e.target.value,
-                            })
-                          }
-                          readOnly={!isEditing}
-                          className={
-                            !isEditing
-                              ? "bg-muted/10 border-none font-medium pointer-events-none"
-                              : "bg-muted/30"
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Emergency Contact Relation
-                        </label>
-                        <Input
-                          value={editForm.emergency_contact_relation || ""}
-                          onChange={(e) =>
-                            setEditForm({
-                              ...editForm,
-                              emergency_contact_relation: e.target.value,
-                            })
-                          }
-                          readOnly={!isEditing}
-                          placeholder="e.g. Uncle"
-                          className={
-                            !isEditing
-                              ? "bg-muted/10 border-none font-medium pointer-events-none"
-                              : "bg-muted/30"
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Emergency Contact Number
-                        </label>
-                        <Input
-                          value={editForm.emergency_contact_number || ""}
-                          onChange={(e) =>
-                            setEditForm({
-                              ...editForm,
-                              emergency_contact_number: e.target.value,
                             })
                           }
                           readOnly={!isEditing}
@@ -4252,14 +4163,14 @@ export function StudentProfile() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsPaymentDrawerOpen(false)}
-              className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[100]"
+              className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40"
             />
             <motion.div
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed top-0 right-0 h-full w-full max-w-md bg-card border-l border-primary/20 z-[101] shadow-2xl flex flex-col pt-6"
+              className="fixed top-0 right-0 h-full w-full max-w-md bg-card border-l border-primary/20 z-[41] shadow-2xl flex flex-col pt-6"
             >
               <div className="px-6 flex justify-between items-center mb-8">
                 <div>
@@ -4356,7 +4267,8 @@ export function StudentProfile() {
                       </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                          Collected Date (For Backdate)
+                          Collected Date (For Backdate){" "}
+                          <span className="text-red-500">*</span>
                         </label>
                         <div className="relative">
                           <Input
@@ -4449,6 +4361,10 @@ export function StudentProfile() {
                     <Button
                       type="button"
                       onClick={async () => {
+                        if (!collectedDate) {
+                          alert("Collected Date is required.");
+                          return;
+                        }
                         if (
                           !selectedInvoiceId ||
                           !paymentAmount ||
@@ -4468,119 +4384,7 @@ export function StudentProfile() {
                           return;
                         }
 
-                        setIsProcessingPayment(true);
-                        try {
-                          const timestamp = new Date().toISOString();
-                          const amount = Number(paymentAmount);
-                          const adjustment = Number(adjustmentAmount) || 0;
-
-                          // Secure Backend Logic: Use Supabase database RPC only
-                          if (supabase && id) {
-                            const { data, error } = await supabase.rpc(
-                              "process_installment_payment_v5",
-                              {
-                                p_invoice_id: selectedInvoiceId,
-                                p_student_id: student?.id,
-                                p_amount: amount,
-                                p_payment_method: paymentMethod,
-                                p_reference_id:
-                                  paymentRefId || `MAN-${Date.now()}`,
-                                p_adjustment_amount: adjustment,
-                                p_adjustment_title:
-                                  adjustment > 0
-                                    ? "Late Fee"
-                                    : "Discount/Scholarship",
-                                p_payment_date: collectedDate,
-                              },
-                            );
-
-                            if (error) {
-                              console.error("RPC Error:", error);
-                              alert(
-                                `Payment processing failed: ${error.message}`,
-                              );
-                            } else {
-                              // If adjustment is specified, create an adjustment transaction client-side to be 100% sure it is tracked!
-                              if (adjustment !== 0) {
-                                try {
-                                  await supabase.from("transactions").insert({
-                                    id:
-                                      "ADJ-" +
-                                      Date.now() +
-                                      "-" +
-                                      Math.floor(Math.random() * 1000),
-                                    student_id: student?.id || id,
-                                    invoice_id: selectedInvoiceId,
-                                    date: new Date()
-                                      .toISOString()
-                                      .split("T")[0],
-                                    description:
-                                      (adjustment > 0
-                                        ? "Late Fee"
-                                        : "Discount/Scholarship") +
-                                      ` for ${invoices.find((inv) => inv.id === selectedInvoiceId)?.title || selectedInvoiceId}`,
-                                    type:
-                                      adjustment < 0 ? "Discount" : "Late Fee",
-                                    category:
-                                      adjustment < 0 ? "Discount" : "Fees",
-                                    amount: adjustment,
-                                    status: "Success",
-                                    payment_method: "SYSTEM",
-                                  });
-                                } catch (adjErr) {
-                                  console.error(
-                                    "Error inserting adjustment txn:",
-                                    adjErr,
-                                  );
-                                }
-                              }
-
-                              // Successfully processed securely, refetch data
-                              await fetchStudentData(true);
-                              setIsPaymentDrawerOpen(false);
-
-                              // Show Receipt automatically
-                              if (data) {
-                                setReceiptData({
-                                  ...data,
-                                  student_name: student?.name,
-                                  installment_title: invoices.find(
-                                    (inv) => inv.id === selectedInvoiceId,
-                                  )?.title,
-                                  payment_method: paymentMethod,
-                                  reference_id:
-                                    paymentRefId || `MAN-${Date.now()}`,
-                                  date: new Date(
-                                    collectedDate || new Date(),
-                                  ).toLocaleDateString("en-IN", {
-                                    year: "numeric",
-                                    month: "long",
-                                    day: "numeric",
-                                  }),
-                                  paid_amount: amount,
-                                  discount_amount:
-                                    data?.total_discount ||
-                                    (adjustment < 0 ? Math.abs(adjustment) : 0),
-                                });
-                                setShowReceiptModal(true);
-                              }
-
-                              setPaymentAmount("");
-                              setPaymentRefId("");
-                              setAdjustmentAmount("");
-                              setSelectedInvoiceId(null);
-                            }
-                          } else {
-                            alert(
-                              "Database connection is not configured or Student ID is missing.",
-                            );
-                          }
-                        } catch (e) {
-                          console.error("Payment processing failed:", e);
-                          alert("Failed to process payment");
-                        } finally {
-                          setIsProcessingPayment(false);
-                        }
+                        setIsPaymentConfirmDialogOpen(true);
                       }}
                       disabled={
                         !selectedInvoiceId ||
@@ -4768,6 +4572,84 @@ export function StudentProfile() {
               Start Upload
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Confirmation Dialog */}
+      <Dialog
+        open={isPaymentConfirmDialogOpen}
+        onOpenChange={setIsPaymentConfirmDialogOpen}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+              <CheckCircle2 className="h-6 w-6 text-primary" />
+              Confirm Payment
+            </DialogTitle>
+            <DialogDescription className="text-sm pt-2">
+              Please verify all payment details before proceeding.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="flex justify-between border-b pb-2">
+              <span className="text-muted-foreground font-medium text-sm">
+                Amount
+              </span>
+              <span className="font-bold text-lg">₹{paymentAmount}</span>
+            </div>
+            {adjustmentAmount && Number(adjustmentAmount) !== 0 && (
+              <div className="flex justify-between border-b pb-2">
+                <span className="text-muted-foreground font-medium text-sm">
+                  {Number(adjustmentAmount) > 0 ? "Late Fee" : "Discount"}
+                </span>
+                <span className="font-bold text-lg">
+                  ₹{Math.abs(Number(adjustmentAmount))}
+                </span>
+              </div>
+            )}
+            <div className="flex justify-between border-b pb-2">
+              <span className="text-muted-foreground font-medium text-sm">
+                Method
+              </span>
+              <span className="font-bold text-sm">{paymentMethod}</span>
+            </div>
+            {paymentRefId && paymentMethod !== "Cash" && (
+              <div className="flex justify-between border-b pb-2">
+                <span className="text-muted-foreground font-medium text-sm">
+                  Ref ID
+                </span>
+                <span className="font-mono text-sm max-w-[150px] truncate">
+                  {paymentRefId}
+                </span>
+              </div>
+            )}
+            <div className="flex justify-between pb-2">
+              <span className="text-muted-foreground font-medium text-sm">
+                Date
+              </span>
+              <span className="font-bold text-sm">
+                {collectedDate || new Date().toISOString().split("T")[0]}
+              </span>
+            </div>
+          </div>
+
+          <DialogFooter className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsPaymentConfirmDialogOpen(false)}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
+              onClick={processSecurePayment}
+              disabled={isProcessingPayment}
+            >
+              {isProcessingPayment ? "Processing..." : "Confirm & Pay"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

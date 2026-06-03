@@ -224,6 +224,12 @@ export const api = {
     const defaultId = `TXN-${Math.floor(Math.random() * 10000)}`
     return insertToSupabase('transactions', { ...transaction, id: defaultId })
   },
+  deleteTransactionsByInvoice: async (invoiceId: string) => {
+    if (supabase) {
+      const { error } = await supabase.from('transactions').delete().eq('invoice_id', invoiceId)
+      return { error }
+    }
+  },
   
   getResources: () => fetchFromSupabase('resources'),
   updateResourceStatus: (id: string, status: string) => updateInSupabase('resources', id, { status }),
