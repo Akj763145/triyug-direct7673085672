@@ -179,6 +179,14 @@ export function StudentProfile() {
   const [selectedDay, setSelectedDay] = useState<AttendanceRecord | null>(null);
 
   const [isPaymentDrawerOpen, setIsPaymentDrawerOpen] = useState(false);
+  const [isCustomFeeDialogOpen, setIsCustomFeeDialogOpen] = useState(false);
+  const [customFeeTitle, setCustomFeeTitle] = useState("");
+  const [customFeeAmount, setCustomFeeAmount] = useState("");
+  const [customFeeDueDate, setCustomFeeDueDate] = useState<string>(
+    new Date().toISOString().split("T")[0]
+  );
+  const [isAddingCustomFee, setIsAddingCustomFee] = useState(false);
+
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
   const [editInvoiceAmount, setEditInvoiceAmount] = useState<string>("");
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(
@@ -789,6 +797,42 @@ export function StudentProfile() {
       supabase.removeChannel(channel);
     };
   }, [id, fetchStudentData, fetchAttendance, supabase]);
+
+  const handleAddCustomFee = async () => {
+    if (!id || !supabase || !student) return;
+    if (!customFeeTitle || !customFeeAmount) return;
+
+    setIsAddingCustomFee(true);
+    try {
+      const newInvoice = {
+        id: `INV-${student.id}-${Date.now()}`,
+        student_id: student.id,
+        student_name: student.name,
+        category: customFeeTitle,
+        amount: Number(customFeeAmount),
+        due_date: customFeeDueDate,
+        status: "Unpaid",
+      };
+
+      const { error } = await supabase
+        .from("invoices")
+        .insert([newInvoice])
+        .select()
+        .single();
+
+      if (error) throw error;
+      
+      await fetchStudentData(true);
+      setIsCustomFeeDialogOpen(false);
+      setCustomFeeTitle("");
+      setCustomFeeAmount("");
+    } catch (err) {
+      console.error("Failed to add custom fee:", err);
+      alert("Failed to add custom fee. Check console for details.");
+    } finally {
+      setIsAddingCustomFee(false);
+    }
+  };
 
   const toggleStatus = async () => {
     if (!id || !supabase || !student) return;
@@ -2080,7 +2124,7 @@ export function StudentProfile() {
                       <div className="space-y-4 sm:col-span-2">
                         <div className="space-y-2 w-full sm:w-1/2">
                           <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                            Tuition Fee Amount (₹)
+                            Total Fee Amount (₹)
                           </label>
                           <Input
                             type="number"
@@ -2930,12 +2974,21 @@ export function StudentProfile() {
                   </p>
                 </div>
               </div>
-              <Button
-                className="bg-teal-600 hover:bg-teal-700 text-white rounded px-6 py-5 text-sm font-medium tracking-wide shadow-none transition-colors"
-                onClick={() => setIsPaymentDrawerOpen(true)}
-              >
-                [+ Collect Payment]
-              </Button>
+              <div className="flex items-center gap-2 mt-4 sm:mt-0">
+                <Button
+                  variant="outline"
+                  className="bg-white text-teal-800 hover:bg-teal-50 border-teal-200 rounded px-4 py-5 text-sm font-medium tracking-wide shadow-none transition-colors"
+                  onClick={() => setIsCustomFeeDialogOpen(true)}
+                >
+                  [+ Add Custom Fee]
+                </Button>
+                <Button
+                  className="bg-teal-600 hover:bg-teal-700 text-white rounded px-6 py-5 text-sm font-medium tracking-wide shadow-none transition-colors"
+                  onClick={() => setIsPaymentDrawerOpen(true)}
+                >
+                  [+ Collect Payment]
+                </Button>
+              </div>
             </div>
 
             {/* Monthly / Annual Basis Subscription Alert */}
@@ -4563,6 +4616,58 @@ export function StudentProfile() {
               disabled={isProcessingPayment}
             >
               {isProcessingPayment ? "Processing..." : "Confirm & Pay"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Custom Fee Dialog */}
+      <Dialog open={isCustomFeeDialogOpen} onOpenChange={setIsCustomFeeDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Custom Fee</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Fee Title</label>
+              <Input
+                placeholder="e.g. Transport, Uniform, Library Late Fee..."
+                value={customFeeTitle}
+                onChange={(e) => setCustomFeeTitle(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Amount (₹)</label>
+              <Input
+                type="number"
+                min="0"
+                placeholder="e.g. 500"
+                value={customFeeAmount}
+                onChange={(e) => setCustomFeeAmount(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Due Date</label>
+              <Input
+                type="date"
+                value={customFeeDueDate}
+                onChange={(e) => setCustomFeeDueDate(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsCustomFeeDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddCustomFee}
+              disabled={isAddingCustomFee || !customFeeTitle || !customFeeAmount}
+              className="bg-teal-600 hover:bg-teal-700 text-white"
+            >
+              {isAddingCustomFee ? "Adding..." : "Add Fee"}
             </Button>
           </DialogFooter>
         </DialogContent>
