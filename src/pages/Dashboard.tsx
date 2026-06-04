@@ -83,7 +83,9 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
   const [attendanceLoading, setAttendanceLoading] = useState<boolean>(false);
   const [staffAttendanceLoading, setStaffAttendanceLoading] = useState<boolean>(false);
   const [attendanceSearch, setAttendanceSearch] = useState<string>("");
+  const [studentStatusFilter, setStudentStatusFilter] = useState<string>("All");
   const [staffAttendanceSearch, setStaffAttendanceSearch] = useState<string>("");
+  const [staffStatusFilter, setStaffStatusFilter] = useState<string>("All");
   const [holidays, setHolidays] = useState<any[]>([]);
 
   // Overdue Invoices states
@@ -237,23 +239,43 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
   }, [fullStaffList, staffAttendanceRecords]);
 
   const filteredAttendanceStudents = useMemo(() => {
+    let filtered = studentList;
+    if (studentStatusFilter !== "All") {
+      filtered = filtered.filter((s: any) => {
+        const status = attendanceBreakdown.recordsMap[s.id] || 'Unmarked';
+        return status === studentStatusFilter;
+      });
+    }
+
     const searchLower = attendanceSearch.toLowerCase().trim();
-    if (searchLower === '') return studentList;
-    return studentList.filter((s: any) => 
-      (s.name?.toLowerCase() || "").includes(searchLower) ||
-      (s.id?.toLowerCase() || "").includes(searchLower)
-    );
-  }, [studentList, attendanceSearch]);
+    if (searchLower !== '') {
+      filtered = filtered.filter((s: any) => 
+        (s.name?.toLowerCase() || "").includes(searchLower) ||
+        (s.id?.toLowerCase() || "").includes(searchLower)
+      );
+    }
+    return filtered;
+  }, [studentList, attendanceSearch, studentStatusFilter, attendanceBreakdown]);
 
   const filteredAttendanceStaff = useMemo(() => {
+    let filtered = fullStaffList;
+    if (staffStatusFilter !== "All") {
+      filtered = filtered.filter((s: any) => {
+        const status = staffAttendanceBreakdown.recordsMap[s.id] || 'Unmarked';
+        return status === staffStatusFilter;
+      });
+    }
+
     const searchLower = staffAttendanceSearch.toLowerCase().trim();
-    if (searchLower === '') return fullStaffList;
-    return fullStaffList.filter((s: any) => 
-      (s.first_name?.toLowerCase() || "").includes(searchLower) ||
-      (s.last_name?.toLowerCase() || "").includes(searchLower) ||
-      (s.id?.toLowerCase() || "").includes(searchLower)
-    );
-  }, [fullStaffList, staffAttendanceSearch]);
+    if (searchLower !== '') {
+      filtered = filtered.filter((s: any) => 
+        (s.first_name?.toLowerCase() || "").includes(searchLower) ||
+        (s.last_name?.toLowerCase() || "").includes(searchLower) ||
+        (s.id?.toLowerCase() || "").includes(searchLower)
+      );
+    }
+    return filtered;
+  }, [fullStaffList, staffAttendanceSearch, staffStatusFilter, staffAttendanceBreakdown]);
 
   const loadDashboardData = async (dateStr: string) => {
     if (!supabase) return;
@@ -750,42 +772,41 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
         
         {/* Priority Actions */}
         <motion.div variants={itemVariants} className="md:col-span-2 lg:col-span-2">
-          <Card className="h-full bg-white rounded-3xl border border-slate-100/60 shadow-[0_4px_24px_rgba(0,0,0,0.02)] p-6 flex flex-col justify-between hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-300">
+          <Card className="h-32 bg-white rounded-3xl border border-slate-100/60 shadow-[0_4px_24px_rgba(0,0,0,0.02)] p-5 flex flex-col justify-between hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-300">
             <div className="flex justify-between items-start">
-              <div className="h-10 w-10 bg-slate-50 flex items-center justify-center rounded-2xl">
-                <Users className="w-5 h-5 text-slate-400" />
+              <div className="h-8 w-8 bg-slate-50 flex items-center justify-center rounded-xl">
+                <Users className="w-4 h-4 text-slate-400" />
               </div>
             </div>
-            <div className="mt-8">
-              <div className="text-5xl font-black tracking-tighter text-slate-800">{stats.pendingEnquiries}</div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Pending Enquiries</p>
+            <div>
+              <div className="text-3xl font-black tracking-tighter text-slate-800">{stats.pendingEnquiries}</div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Pending Enquiries</p>
             </div>
           </Card>
         </motion.div>
 
         <motion.div variants={itemVariants} className="md:col-span-2 lg:col-span-2" onClick={() => setShowOverdueModal(true)}>
-          <Card className="h-full bg-white rounded-3xl border border-slate-100/60 shadow-[0_4px_24px_rgba(0,0,0,0.02)] p-6 flex flex-col justify-between hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-300 cursor-pointer">
+          <Card className="h-32 bg-white rounded-3xl border border-slate-100/60 shadow-[0_4px_24px_rgba(0,0,0,0.02)] p-5 flex flex-col justify-between hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-300 cursor-pointer">
             <div className="flex justify-between items-start">
-              <div className="h-10 w-10 bg-slate-50 flex items-center justify-center rounded-2xl">
-                <IndianRupee className="w-5 h-5 text-slate-400" />
+              <div className="h-8 w-8 bg-slate-50 flex items-center justify-center rounded-xl">
+                <IndianRupee className="w-4 h-4 text-slate-400" />
               </div>
             </div>
-            <div className="mt-8">
-              <div className="text-5xl font-black tracking-tighter text-slate-800">₹{dashboardOverdueTotalAmount.toLocaleString()}</div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">{dashboardOverdueInvoices.length} Overdue Invoices</p>
+            <div>
+              <div className="text-3xl font-black tracking-tighter text-rose-600">₹{dashboardOverdueTotalAmount.toLocaleString()}</div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{dashboardOverdueInvoices.length} Overdue Invoices</p>
             </div>
           </Card>
         </motion.div>
 
         {/* Small KPI Grid */}
-        <motion.div variants={itemVariants} className="md:col-span-2 lg:col-span-2 grid grid-cols-3 gap-4">
+        <motion.div variants={itemVariants} className="md:col-span-2 lg:col-span-2 grid grid-cols-2 gap-4 h-32">
           {[
              { title: "Total Students", value: stats.students },
-             { title: "Total Staff", value: stats.staff },
-             { title: "Resources", value: stats.resources }
+             { title: "Total Staff", value: stats.staff }
           ].map((kpi, idx) => (
-             <Card key={idx} className="bg-white rounded-[20px] border border-slate-100/60 shadow-[0_4px_24px_rgba(0,0,0,0.02)] p-5 flex flex-col justify-center hover:shadow-[0_6px_20px_rgba(0,0,0,0.04)] transition-all duration-300">
-               <div className="text-2xl font-black text-slate-800">{kpi.value}</div>
+             <Card key={idx} className="bg-white rounded-[20px] border border-slate-100/60 shadow-[0_4px_24px_rgba(0,0,0,0.02)] p-4 flex flex-col justify-center hover:shadow-[0_6px_20px_rgba(0,0,0,0.04)] transition-all duration-300 h-full">
+               <div className="text-xl font-black text-slate-800">{kpi.value}</div>
                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">{kpi.title}</p>
              </Card>
           ))}
@@ -794,7 +815,7 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
         <motion.div variants={itemVariants} className="md:col-span-4 lg:col-span-6 w-full">
            <HolidayManager />
         </motion.div>      {/* Operations Command Center: Consolidated Attendance & Personnel Tracking */}
-      <motion.div variants={itemVariants} className="md:col-span-4 lg:col-span-4 h-full">
+      <motion.div variants={itemVariants} className="md:col-span-4 lg:col-span-6 h-full">
         <Card className="h-full border border-slate-100/60 shadow-[0_4px_24px_rgba(0,0,0,0.02)] rounded-3xl overflow-hidden bg-white flex flex-col">
           <CardHeader className="bg-slate-50/50 border-b border-slate-100 flex flex-col sm:flex-row justify-between sm:items-center gap-4 py-6 px-8">
             <div className="flex items-center gap-4">
@@ -836,14 +857,17 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
                 {/* Student Attendance Content */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
                   {[
-                    { label: "Enrolled", value: attendanceBreakdown.total, color: "text-indigo-600", bg: "bg-indigo-50/30" },
-                    { label: "Present", value: attendanceBreakdown.present, color: "text-emerald-600", bg: "bg-emerald-50/30" },
-                    { label: "Absentees", value: attendanceBreakdown.absent, color: "text-rose-600", bg: "bg-rose-50/30" },
-                    { label: "Late", value: attendanceBreakdown.late, color: "text-amber-600", bg: "bg-amber-50/30" },
-                    { label: "Excused", value: attendanceBreakdown.excused, color: "text-sky-600", bg: "bg-sky-50/30" },
-                    { label: "Unmarked", value: attendanceBreakdown.unmarked, color: "text-slate-400", bg: "bg-slate-100/30" },
+                    { label: "Enrolled", value: attendanceBreakdown.total, color: "text-indigo-600", bg: "bg-indigo-50/30", filter: "All" },
+                    { label: "Present", value: attendanceBreakdown.present, color: "text-emerald-600", bg: "bg-emerald-50/30", filter: "Present" },
+                    { label: "Absentees", value: attendanceBreakdown.absent, color: "text-rose-600", bg: "bg-rose-50/30", filter: "Absent" },
+                    { label: "Late", value: attendanceBreakdown.late, color: "text-amber-600", bg: "bg-amber-50/30", filter: "Late" },
+                    { label: "Excused", value: attendanceBreakdown.excused, color: "text-sky-600", bg: "bg-sky-50/30", filter: "Excused" },
+                    { label: "Unmarked", value: attendanceBreakdown.unmarked, color: "text-slate-400", bg: "bg-slate-100/30", filter: "Unmarked" },
                   ].map((item) => (
-                    <div key={item.label} className={`border border-slate-100/50 rounded-xl p-3 flex flex-col ${item.bg}`}>
+                    <div 
+                      key={item.label} 
+                      onClick={() => setStudentStatusFilter(item.filter)}
+                      className={`border border-slate-100/50 rounded-xl p-3 flex flex-col cursor-pointer transition-all duration-200 hover:shadow-sm ${item.bg} ${studentStatusFilter === item.filter ? 'ring-2 ring-indigo-500 border-transparent' : ''}`}>
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{item.label}</span>
                       <span className={`text-xl font-black mt-1 ${item.color}`}>{item.value}</span>
                     </div>
@@ -917,12 +941,15 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
                 {/* Staff Attendance Content */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
                   {[
-                    { label: "Total Staff", value: staffAttendanceBreakdown.total, color: "text-indigo-600", bg: "bg-indigo-50/30" },
-                    { label: "Present", value: staffAttendanceBreakdown.present, color: "text-emerald-600", bg: "bg-emerald-50/30" },
-                    { label: "Absent", value: staffAttendanceBreakdown.absent, color: "text-rose-600", bg: "bg-rose-50/30" },
-                    { label: "Late Logins", value: staffAttendanceBreakdown.late, color: "text-amber-600", bg: "bg-amber-50/30" },
+                    { label: "Total Staff", value: staffAttendanceBreakdown.total, color: "text-indigo-600", bg: "bg-indigo-50/30", filter: "All" },
+                    { label: "Present", value: staffAttendanceBreakdown.present, color: "text-emerald-600", bg: "bg-emerald-50/30", filter: "Present" },
+                    { label: "Absent", value: staffAttendanceBreakdown.absent, color: "text-rose-600", bg: "bg-rose-50/30", filter: "Absent" },
+                    { label: "Late Logins", value: staffAttendanceBreakdown.late, color: "text-amber-600", bg: "bg-amber-50/30", filter: "Late" },
                   ].map((item) => (
-                    <div key={item.label} className={`border border-slate-100/50 rounded-xl p-3 flex flex-col ${item.bg}`}>
+                    <div 
+                      key={item.label} 
+                      onClick={() => setStaffStatusFilter(item.filter)}
+                      className={`border border-slate-100/50 rounded-xl p-3 flex flex-col cursor-pointer transition-all duration-200 hover:shadow-sm ${item.bg} ${staffStatusFilter === item.filter ? 'ring-2 ring-indigo-500 border-transparent' : ''}`}>
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{item.label}</span>
                       <span className={`text-xl font-black mt-1 ${item.color}`}>{item.value}</span>
                     </div>
@@ -987,85 +1014,7 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
         </Card>
       </motion.div>
 
-      <motion.div variants={itemVariants} className="md:col-span-4 lg:col-span-2 h-full flex flex-col gap-6">
-        {/* Activity Log */}
-        <Card className="flex-1 bg-white rounded-3xl border border-slate-100/60 shadow-[0_4px_24px_rgba(0,0,0,0.02)] overflow-hidden flex flex-col">
-          <CardHeader className="py-6 px-8 border-b border-slate-50 bg-slate-50/30">
-            <CardTitle className="text-sm font-black uppercase tracking-widest text-slate-700">Recent Activity Log</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0 flex-1 overflow-y-auto w-full">
-            <Table>
-              <TableHeader className="bg-slate-50/50 sticky top-0 z-10">
-                <TableRow className="border-slate-100 hover:bg-transparent">
-                  <TableHead className="font-bold text-xs">Action</TableHead>
-                  <TableHead className="font-bold text-xs">User</TableHead>
-                  <TableHead className="text-right font-bold text-xs">Time</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(activityLogs || []).length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={3} className="text-center py-8 text-slate-400 text-xs font-bold uppercase tracking-widest">No recent activity.</TableCell>
-                  </TableRow>
-                ) : (
-                  activityLogs.map((log, idx) => (
-                    <motion.tr 
-                      key={log.id}
-                      initial={{ opacity: 0, x: 10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.3 + idx * 0.05 }}
-                      className="group border-slate-50 hover:bg-slate-50 transition-colors"
-                    >
-                      <TableCell className="font-bold text-xs group-hover:text-indigo-600 transition-colors text-slate-600">{log.action}</TableCell>
-                      <TableCell className="text-xs text-slate-400 font-medium">{log.user}</TableCell>
-                      <TableCell className="text-right text-[10px] whitespace-nowrap text-slate-400 font-bold tracking-wider">{log.time}</TableCell>
-                    </motion.tr>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
 
-        {/* Status Legend Section */}
-        <Card className="bg-white rounded-3xl border border-slate-100/60 shadow-[0_4px_24px_rgba(0,0,0,0.02)]">
-          <CardHeader className="py-5 px-6 border-b border-slate-50 bg-slate-50/30">
-            <CardTitle className="text-[10px] font-black uppercase tracking-widest text-slate-500">System Status Indicators</CardTitle>
-          </CardHeader>
-          <CardContent className="p-6">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex items-center gap-3">
-                <div className="h-3 w-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
-                <div className="flex flex-col">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-700 leading-none mb-1.5">Success</span>
-                  <span className="text-[9px] text-slate-400 leading-none">Paid fees, Completed</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="h-3 w-3 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]" />
-                <div className="flex flex-col">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-700 leading-none mb-1.5">Warning</span>
-                  <span className="text-[9px] text-slate-400 leading-none">Pending, Late</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="h-3 w-3 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.4)]" />
-                <div className="flex flex-col">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-700 leading-none mb-1.5">Danger</span>
-                  <span className="text-[9px] text-slate-400 leading-none">Overdue, Absentees</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="h-3 w-3 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.4)]" />
-                <div className="flex flex-col">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-700 leading-none mb-1.5">Info</span>
-                  <span className="text-[9px] text-slate-400 leading-none">Updates, Notices</span>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
       
       {/* Overdue Invoices Modal */}
       <Dialog open={showOverdueModal} onOpenChange={setShowOverdueModal}>
