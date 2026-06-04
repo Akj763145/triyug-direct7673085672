@@ -204,11 +204,15 @@ export interface Invoice {
   id: string;
   studentId: string;
   studentName?: string;
+  studentContact?: string;
+  studentWhatsapp?: string;
   title?: string;
   category?: string;
   amount: number;
   dueDate: string;
   status: "Paid" | "Partial" | "Unpaid" | "Upcoming" | "Overdue";
+  paymentMethod?: string;
+  batchIds?: string[];
 }
 
 export type Transaction = LedgerTransaction;

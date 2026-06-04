@@ -165,14 +165,18 @@ export function Students() {
     
     setLoading(true);
     try {
-      const [{ error: profileError1 }, { error: profileError2 }, { error: studentError }] = await Promise.all([
-        supabase.from('student_profiles').update({ status: 'Graduated' }).in('id', selectedStudents),
-        supabase.from('student_profiles').update({ status: 'Graduated' }).in('student_id', selectedStudents),
-        supabase.from('students').update({ status: 'Graduated' }).in('id', selectedStudents)
-      ]);
+      const uuids = selectedStudents.filter(id => /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(id));
       
-      if (profileError1 && profileError2 && studentError) throw profileError1 || profileError2;
+      const promises = [];
+      if (uuids.length > 0) {
+        promises.push(supabase.from('student_profiles').update({ status: 'Graduated' }).in('id', uuids));
+      }
+      promises.push(supabase.from('student_profiles').update({ status: 'Graduated' }).in('student_id', selectedStudents));
+      promises.push(supabase.from('students').update({ status: 'Graduated' }).in('id', selectedStudents));
+
+      await Promise.allSettled(promises);
       
+      apiCache.clear();
       await loadStudents();
       setSelectedStudents([]);
     } catch (err) {
@@ -188,14 +192,23 @@ export function Students() {
     const newStatus = student.status === 'Active' ? 'Graduated' : 'Active';
     
     try {
-      // Parallel update attempt for both potential tables and matching columns (id and student_id)
-      await Promise.all([
-        supabase.from('student_profiles').update({ status: newStatus }).eq('id', student.id),
-        supabase.from('student_profiles').update({ status: newStatus }).eq('student_id', student.id),
-        supabase.from('students').update({ status: newStatus }).eq('id', student.id)
-      ]);
+      const isUUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(student.id);
+
+      const promises = [];
+      if (isUUID) {
+        promises.push(supabase.from('student_profiles').update({ status: newStatus }).eq('id', student.id));
+      }
+      promises.push(supabase.from('student_profiles').update({ status: newStatus }).eq('student_id', student.id));
+      promises.push(supabase.from('students').update({ status: newStatus }).eq('id', student.id));
+
+      const results = await Promise.allSettled(promises);
       
-      setStudents(prev => prev.map(s => s.id === student.id ? { ...s, status: newStatus } : s));
+      const hasSuccess = results.some(r => r.status === 'fulfilled' && !r.value.error);
+      
+      if (hasSuccess) {
+        setStudents(prev => prev.map(s => s.id === student.id ? { ...s, status: newStatus } : s));
+        apiCache.clear();
+      }
     } catch (err) {
       console.error("Error toggling status:", err);
     }
@@ -457,7 +470,7 @@ export function Students() {
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(`/students/${student.id}`)}>
                           <Eye className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-primary">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" onClick={() => navigate(`/students/${student.id}?edit=true`)}>
                           <Edit className="h-4 w-4" />
                         </Button>
                       </TableCell>

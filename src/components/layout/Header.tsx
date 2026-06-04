@@ -1,5 +1,4 @@
-import { Bell, Search, User, Menu } from "lucide-react";
-import { Input } from "../ui/input";
+import { Bell, User, Menu } from "lucide-react";
 import { Button } from "../ui/button";
 import { useLocation } from "react-router-dom";
 import { motion } from "motion/react";
@@ -41,18 +40,6 @@ export function Header({ toggleSidebar }: HeaderProps) {
         <h2 className="text-sm font-semibold text-slate-800 tracking-tight hidden md:block w-48 truncate">
           {getPageTitle()}
         </h2>
-        <motion.div 
-          initial={{ opacity: 0, width: 0 }}
-          animate={{ opacity: 1, width: "100%" }}
-          className="relative w-full max-w-sm hidden sm:block mx-auto flex-1"
-        >
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-          <Input 
-            type="search"
-            placeholder="Search by ID or name (Press /)"
-            className="w-full bg-slate-100/50 pl-9 border-transparent text-sm focus-visible:ring-primary focus-visible:bg-white transition-all rounded-full h-9"
-          />
-        </motion.div>
       </div>
       <div className="flex items-center space-x-3 ml-auto">
         <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>

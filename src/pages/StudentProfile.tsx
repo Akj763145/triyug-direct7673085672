@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   ArrowLeft,
   Upload,
@@ -99,6 +99,7 @@ import {
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
 import { QRCodeSVG } from "qrcode.react";
+import { apiCache } from "../lib/api";
 
 const resizeImage = (
   file: File,
@@ -148,6 +149,7 @@ const resizeImage = (
 export function StudentProfile() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [loading, setLoading] = useState(true);
   const [student, setStudent] = useState<Student | null>(null);
@@ -162,6 +164,15 @@ export function StudentProfile() {
 
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<Partial<Student>>({});
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    if (searchParams.get('edit') === 'true') {
+      setIsEditing(true);
+      // Optional: remove query string without triggering refresh
+      window.history.replaceState({}, '', location.pathname);
+    }
+  }, [location.search, location.pathname]);
   const [uploading, setUploading] = useState(false);
   const [showIDCard, setShowIDCard] = useState(false);
 
@@ -653,16 +664,16 @@ export function StudentProfile() {
               ? dbPhoto
               : localPhoto || undefined;
 
-          const resolvedGrade = batchNamesJoined || profileData.grade || "";
+          const resolvedGrade = profileData.grade || batchNamesJoined || "";
 
           // Map to expected Student format
           const mappedStudent: Student = {
             ...profileData,
-            fee_per_installment: profileData.fee_per_installment || derived_fee,
-            fee_interval_months: profileData.fee_interval_months || derived_gap,
-            fee_duration_value: profileData.fee_duration_value || derived_dur,
+            fee_per_installment: profileData.fee_per_installment !== null ? profileData.fee_per_installment : derived_fee,
+            fee_interval_months: profileData.fee_interval_months !== null ? profileData.fee_interval_months : derived_gap,
+            fee_duration_value: profileData.fee_duration_value !== null ? profileData.fee_duration_value : derived_dur,
             id: profileData.student_id || profileData.id,
-            name: `${profileData.first_name} ${profileData.last_name}`,
+            name: `${profileData.first_name || ""} ${profileData.last_name || ""}`.trim(),
             grade: resolvedGrade,
             contact: profileData.parent1_contact || "N/A",
             status: profileData.status === "Active" ? "Active" : "Graduated", // Simple status mapping
@@ -681,13 +692,13 @@ export function StudentProfile() {
               ? dbPhoto
               : localPhoto || undefined;
 
-          const resolvedGrade = batchNamesJoined || studentData.grade || "";
+          const resolvedGrade = studentData.grade || batchNamesJoined || "";
 
           const mappedOld: Student = {
             ...studentData,
-            fee_per_installment: studentData.fee_per_installment || derived_fee,
-            fee_interval_months: studentData.fee_interval_months || derived_gap,
-            fee_duration_value: studentData.fee_duration_value || derived_dur,
+            fee_per_installment: studentData.fee_per_installment !== null && studentData.fee_per_installment !== undefined ? studentData.fee_per_installment : derived_fee,
+            fee_interval_months: studentData.fee_interval_months !== null && studentData.fee_interval_months !== undefined ? studentData.fee_interval_months : derived_gap,
+            fee_duration_value: studentData.fee_duration_value !== null && studentData.fee_duration_value !== undefined ? studentData.fee_duration_value : derived_dur,
             grade: resolvedGrade,
             photo_url: finalPhoto,
           };
@@ -844,11 +855,17 @@ export function StudentProfile() {
 
     try {
       // 1. Check which table (supporting both uuid match and student_id code match)
-      const { data: profileCheck } = await supabase
-        .from("student_profiles")
-        .select("id")
-        .or(`id.eq.${id},student_id.eq.${id}`)
-        .maybeSingle();
+      const isUUID =
+        /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
+          id,
+        );
+      let pCheckQuery = supabase.from("student_profiles").select("id");
+      if (isUUID) {
+        pCheckQuery = pCheckQuery.eq("id", id);
+      } else {
+        pCheckQuery = pCheckQuery.eq("student_id", id);
+      }
+      const { data: profileCheck } = await pCheckQuery.maybeSingle();
 
       if (profileCheck) {
         await supabase
@@ -875,16 +892,24 @@ export function StudentProfile() {
 
     try {
       // Check which table this student is from
-      const { data: profileCheck } = await supabase
-        .from("student_profiles")
-        .select("id")
-        .or(`id.eq.${id},student_id.eq.${id}`)
-        .maybeSingle();
+      const isUUID =
+        /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
+          id,
+        );
+
+      let profileCheckQuery = supabase.from("student_profiles").select("id");
+      if (isUUID) {
+        profileCheckQuery = profileCheckQuery.eq("id", id);
+      } else {
+        profileCheckQuery = profileCheckQuery.eq("student_id", id);
+      }
+
+      const { data: profileCheck } = await profileCheckQuery.maybeSingle();
 
       if (profileCheck) {
-        const parts = (editForm.name || "").split(" ");
-        const firstName = parts[0] || editForm.first_name || "";
-        const lastName = parts.slice(1).join(" ") || editForm.last_name || "";
+        const parts = (editForm.name || "").trim().split(/\s+/);
+        const firstName = parts[0] || "";
+        const lastName = parts.length > 1 ? parts.slice(1).join(" ") : "";
         const { error } = await supabase
           .from("student_profiles")
           .update({
@@ -906,9 +931,9 @@ export function StudentProfile() {
             date_of_birth: editForm.date_of_birth || null,
 
             // Fee Structure
-            fee_per_installment: editForm.fee_per_installment || null,
-            fee_interval_months: editForm.fee_interval_months || null,
-            fee_duration_value: editForm.fee_duration_value || null,
+            fee_per_installment: editForm.fee_per_installment !== undefined && editForm.fee_per_installment !== "" ? editForm.fee_per_installment : null,
+            fee_interval_months: editForm.fee_interval_months !== undefined && editForm.fee_interval_months !== "" ? editForm.fee_interval_months : null,
+            fee_duration_value: editForm.fee_duration_value !== undefined && editForm.fee_duration_value !== "" ? editForm.fee_duration_value : null,
             fee_as_long_as_continues:
               editForm.fee_as_long_as_continues || false,
 
@@ -952,6 +977,40 @@ export function StudentProfile() {
           })
           .eq("id", profileCheck.id);
         if (error) throw error;
+        
+        // Also sync students table and invoices
+        const targetStudentId = id;
+        
+        await supabase.from("students").update({
+          name: editForm.name,
+          contact: editForm.contact || editForm.parent1_contact || null,
+          grade: editForm.grade,
+          status: editForm.status || "Active",
+        }).eq("id", targetStudentId);
+
+        await supabase.from("invoices").update({
+          student_name: editForm.name
+        }).eq("student_id", targetStudentId);
+
+        // Fetch transactions for the student and update their descriptions
+        const { data: txs } = await supabase
+          .from("transactions")
+          .select("id, description")
+          .eq("student_id", targetStudentId);
+          
+        if (txs && txs.length > 0) {
+          for (const tx of txs) {
+            let desc = tx.description;
+            if (desc) {
+               desc = desc.replace(/\(.*\)/, `(${editForm.name})`);
+               desc = desc.replace(/by .*$/, `by ${editForm.name}`);
+               await supabase.from("transactions").update({ description: desc }).eq("id", tx.id);
+            }
+          }
+        }
+
+        // Clear apiCache so other pages refetch
+        apiCache.clear();
 
         // Check if we need to call override for fee calculation
         const target_fee_per_installment =
@@ -1013,8 +1072,8 @@ export function StudentProfile() {
             let idx = 1;
             editAnnualEmis.forEach((emi) => {
               invoicesToCreate.push({
-                id: `INV-${student?.student_id || profileCheck.id}-${Date.now()}-upd-${idx++}`,
-                student_id: student?.student_id || profileCheck.id,
+                id: `INV-${targetStudentId}-${Date.now()}-upd-${idx++}`,
+                student_id: targetStudentId,
                 student_name: editForm.name || student?.name,
                 category: emi.label,
                 amount: emi.amount,
@@ -1025,8 +1084,8 @@ export function StudentProfile() {
           } else {
             // Insert the single correct Total Tuition Fee if they didn't divide
             invoicesToCreate.push({
-              id: `INV-${student?.student_id || profileCheck.id}-${Date.now()}-update`,
-              student_id: student?.student_id || profileCheck.id,
+              id: `INV-${targetStudentId}-${Date.now()}-update`,
+              student_id: targetStudentId,
               student_name: editForm.name || student?.name,
               category: `Total Tuition Fee`,
               amount: feeAmount,
@@ -1050,6 +1109,13 @@ export function StudentProfile() {
           })
           .eq("id", id);
         if (error) throw error;
+        
+        await supabase.from("invoices").update({
+          student_name: editForm.name
+        }).eq("student_id", id);
+
+        // Clear apiCache so other pages refetch
+        apiCache.clear();
       }
 
       setStudent({ ...student, ...editForm } as Student);
@@ -1122,11 +1188,17 @@ export function StudentProfile() {
       }
 
       // 3. Update the database table (student_profiles or older students fallback) with final photo (publicUrl or base64)
-      const { data: profileCheck } = await supabase
-        .from("student_profiles")
-        .select("id")
-        .or(`id.eq.${id},student_id.eq.${id}`)
-        .maybeSingle();
+      const isUUID =
+        /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
+          id,
+        );
+      let pCheckQuery = supabase.from("student_profiles").select("id");
+      if (isUUID) {
+        pCheckQuery = pCheckQuery.eq("id", id);
+      } else {
+        pCheckQuery = pCheckQuery.eq("student_id", id);
+      }
+      const { data: profileCheck } = await pCheckQuery.maybeSingle();
 
       if (profileCheck) {
         await supabase

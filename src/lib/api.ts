@@ -171,7 +171,7 @@ export const api = {
         return {
           id: sId,
           created_at: p.created_at,
-          name: `${p.first_name} ${p.last_name}`,
+          name: `${p.first_name || ""} ${p.last_name || ""}`.trim(),
           grade: p.grade,
           contact: p.parent1_contact || 'N/A',
           parent1_contact: p.parent1_contact,
@@ -208,17 +208,84 @@ export const api = {
   
   getBatches: () => fetchFromSupabase('batches'),
   getInvoices: async () => {
-    const data = await fetchFromSupabase('invoices');
-    return data.map((inv: any) => ({
-      id: inv.id,
-      studentId: inv.student_id,
-      studentName: inv.student_name,
-      title: (inv.title || inv.category || 'Invoice').replace(/Installment/g, 'Fee').replace(/installment/g, 'fee'),
-      category: inv.category,
-      amount: inv.amount,
-      dueDate: inv.due_date,
-      status: inv.status
-    }));
+    const [data, profiles, students, transactions, studentBatches] = await Promise.all([
+      fetchFromSupabase('invoices'),
+      fetchFromSupabase('student_profiles'),
+      fetchFromSupabase('students'),
+      fetchFromSupabase('transactions'),
+      fetchFromSupabase('student_batches')
+    ]);
+
+    const studentDataMap = new Map();
+    if (profiles) {
+      profiles.forEach((p: any) => {
+        if (p.id) {
+          studentDataMap.set(p.id, {
+            contact: p.parent1_contact || p.parent2_contact,
+            whatsapp: p.parent1_whatsapp
+          });
+        }
+        if (p.student_id) {
+          studentDataMap.set(p.student_id, {
+            contact: p.parent1_contact || p.parent2_contact,
+            whatsapp: p.parent1_whatsapp
+          });
+        }
+      });
+    }
+
+    if (students) {
+      students.forEach((s: any) => {
+        if (s.id && !studentDataMap.has(s.id)) {
+          studentDataMap.set(s.id, {
+            contact: s.contact
+          });
+        }
+        if (s.student_id && !studentDataMap.has(s.student_id)) {
+          studentDataMap.set(s.student_id, {
+            contact: s.contact
+          });
+        }
+      });
+    }
+
+    const transactionMap = new Map();
+    if (transactions) {
+      // Pick the latest transaction for the invoice, or if it has multiple prioritize success
+      transactions.forEach((tx: any) => {
+        if (tx.invoice_id) {
+          transactionMap.set(tx.invoice_id, tx.payment_method || tx.paymentMethod);
+        }
+      });
+    }
+
+    const studentBatchMap = new Map();
+    if (studentBatches) {
+      studentBatches.forEach((sb: any) => {
+        if (!studentBatchMap.has(sb.student_id)) {
+          studentBatchMap.set(sb.student_id, []);
+        }
+        studentBatchMap.get(sb.student_id).push(sb.batch_id);
+      });
+    }
+
+    return (data || []).map((inv: any) => {
+      const studentInfo = studentDataMap.get(inv.student_id) || {};
+      return {
+        id: inv.id,
+        studentId: inv.student_id,
+        studentName: inv.student_name,
+        studentContact: studentInfo.contact,
+        studentWhatsapp: studentInfo.whatsapp,
+        title: (inv.title || inv.category || 'Invoice').replace(/Installment/g, 'Fee').replace(/installment/g, 'fee'),
+        category: inv.category,
+        amount: inv.amount,
+        dueDate: inv.due_date,
+        status: inv.status,
+        paymentMethod: transactionMap.get(inv.id) || null,
+        batchIds: studentBatchMap.get(inv.student_id) || []
+      };
+    });
   },
   updateInvoiceStatus: (id: string, status: string) => updateInSupabase('invoices', id, { status }),
 

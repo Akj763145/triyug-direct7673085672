@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent } from "../components/ui/card";
-import { IndianRupee, X, Calendar, User, Send, FileText, CheckCircle2 } from "lucide-react";
+import { IndianRupee, X, Calendar, User, Send, FileText, CheckCircle2, Search, MessageCircle } from "lucide-react";
 import { api, apiCache } from "../lib/api";
 import { Invoice } from "../types";
 import { Skeleton } from "../components/ui/skeleton";
@@ -31,16 +31,44 @@ export function Fees() {
     new Date().toISOString().split("T")[0],
   );
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [paymentModeInput, setPaymentModeInput] = useState<string>("Cash");
+  const [paymentModeFilter, setPaymentModeFilter] = useState<string>("All");
+  const [dateFilterType, setDateFilterType] = useState<'all' | 'month' | 'date'>('all');
+  const [dateFilterValue, setDateFilterValue] = useState<string>('');
+
+  const [batchFilter, setBatchFilter] = useState<string>("All");
+  const [batches, setBatches] = useState<{ id: string; name: string }[]>([]);
+  const [reminderDialogOpen, setReminderDialogOpen] = useState(false);
+  const [selectedInvoiceForReminder, setSelectedInvoiceForReminder] = useState<Invoice | null>(null);
 
   useEffect(() => {
-    const loadInvoices = async () => {
-      const data = await api.getInvoices();
-      if (data) {
-        setInvoices(data as Invoice[]);
+    const loadData = async () => {
+      const [invoicesData, batchesData] = await Promise.all([
+        api.getInvoices(),
+        api.getBatches()
+      ]);
+      if (invoicesData) {
+        setInvoices(invoicesData as Invoice[]);
+      }
+      if (batchesData) {
+        setBatches(batchesData as { id: string; name: string }[]);
       }
       setLoading(false);
     };
-    loadInvoices();
+    loadData();
+  }, []);
+
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        document.getElementById('fees-search-input')?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   const containerVariants = {
@@ -66,15 +94,63 @@ export function Fees() {
     i.status === 'Paid'
   ), [invoices]);
 
+  const filteredCollectedInvoices = useMemo(() => {
+    return collectedInvoices.filter(i => {
+      const matchesSearch = !search || 
+        i.studentName?.toLowerCase().includes(search.toLowerCase()) ||
+        i.studentId?.toLowerCase().includes(search.toLowerCase()) ||
+        i.category?.toLowerCase().includes(search.toLowerCase()) ||
+        i.amount.toString().includes(search) ||
+        i.studentContact?.toLowerCase().includes(search.toLowerCase()) ||
+        i.studentWhatsapp?.toLowerCase().includes(search.toLowerCase());
+      
+      const matchesPaymentMode = paymentModeFilter === "All" || i.paymentMethod === paymentModeFilter;
+      const matchesBatch = batchFilter === "All" || (i.batchIds && i.batchIds.includes(batchFilter));
+      
+      let matchesDate = true;
+      if (dateFilterType === 'month' && dateFilterValue) {
+        matchesDate = i.dueDate.startsWith(dateFilterValue);
+      } else if (dateFilterType === 'date' && dateFilterValue) {
+        matchesDate = i.dueDate.startsWith(dateFilterValue);
+      }
+      
+      return matchesSearch && matchesPaymentMode && matchesDate && matchesBatch;
+    });
+  }, [collectedInvoices, search, paymentModeFilter, dateFilterType, dateFilterValue, batchFilter]);
+
+  const filteredOverdueInvoices = useMemo(() => {
+    return overdueInvoices.filter(i => {
+      const matchesSearch = !search || 
+        i.studentName?.toLowerCase().includes(search.toLowerCase()) ||
+        i.studentId?.toLowerCase().includes(search.toLowerCase()) ||
+        i.category?.toLowerCase().includes(search.toLowerCase()) ||
+        i.amount.toString().includes(search) ||
+        i.studentContact?.toLowerCase().includes(search.toLowerCase()) ||
+        i.studentWhatsapp?.toLowerCase().includes(search.toLowerCase());
+
+      const matchesPaymentMode = paymentModeFilter === "All" || i.paymentMethod === paymentModeFilter;
+      const matchesBatch = batchFilter === "All" || (i.batchIds && i.batchIds.includes(batchFilter));
+      
+      let matchesDate = true;
+      if (dateFilterType === 'month' && dateFilterValue) {
+        matchesDate = i.dueDate.startsWith(dateFilterValue);
+      } else if (dateFilterType === 'date' && dateFilterValue) {
+        matchesDate = i.dueDate.startsWith(dateFilterValue);
+      }
+      
+      return matchesSearch && matchesPaymentMode && matchesDate && matchesBatch;
+    });
+  }, [overdueInvoices, search, paymentModeFilter, dateFilterType, dateFilterValue, batchFilter]);
+
   // Analytics Calculations
   const metrics = useMemo(() => {
-    const totalCollected = collectedInvoices.reduce((acc, curr) => acc + curr.amount, 0);
-    const totalOverdue = overdueInvoices.reduce((acc, curr) => acc + curr.amount, 0);
+    const totalCollected = filteredCollectedInvoices.reduce((acc, curr) => acc + curr.amount, 0);
+    const totalOverdue = filteredOverdueInvoices.reduce((acc, curr) => acc + curr.amount, 0);
 
     const now = new Date();
     // MoM comparison for collected
-    const thisMonthCollected = collectedInvoices.filter(i => isSameMonth(new Date(i.dueDate), now)).reduce((a,b) => a+b.amount, 0);
-    const lastMonthCollected = collectedInvoices.filter(i => isSameMonth(new Date(i.dueDate), subMonths(now, 1))).reduce((a,b) => a+b.amount, 0);
+    const thisMonthCollected = filteredCollectedInvoices.filter(i => isSameMonth(new Date(i.dueDate), now)).reduce((a,b) => a+b.amount, 0);
+    const lastMonthCollected = filteredCollectedInvoices.filter(i => isSameMonth(new Date(i.dueDate), subMonths(now, 1))).reduce((a,b) => a+b.amount, 0);
     
     let growthRate = 0;
     if (lastMonthCollected > 0) {
@@ -82,7 +158,7 @@ export function Fees() {
     }
 
     return { totalCollected, totalOverdue, growthRate };
-  }, [collectedInvoices, overdueInvoices]);
+  }, [filteredCollectedInvoices, filteredOverdueInvoices]);
 
   // Chart Calculations
   const chartData = useMemo(() => {
@@ -90,7 +166,9 @@ export function Fees() {
     const currentYear = new Date().getFullYear();
     const data = months.map(m => ({ name: m, collected: 0, overdue: 0 }));
 
-    invoices.forEach(inv => {
+    const allFilteredInvoices = [...filteredCollectedInvoices, ...filteredOverdueInvoices];
+
+    allFilteredInvoices.forEach(inv => {
       const d = new Date(inv.dueDate);
       if (d.getFullYear() === currentYear) {
         const monthIndex = d.getMonth();
@@ -102,7 +180,7 @@ export function Fees() {
       }
     });
     return data;
-  }, [invoices]);
+  }, [filteredCollectedInvoices, filteredOverdueInvoices]);
 
   const handleStatusChange = async (id: string, newStatus: string) => {
     if (newStatus === "Paid") {
@@ -137,7 +215,7 @@ export function Fees() {
           p_invoice_id: selectedInvoiceForPayment.id,
           p_student_id: selectedInvoiceForPayment.studentId,
           p_amount: selectedInvoiceForPayment.amount,
-          p_payment_method: "Cash",
+          p_payment_method: paymentModeInput,
           p_reference_id: `SYS-${Date.now()}`,
           p_adjustment_amount: 0,
           p_adjustment_title: "0",
@@ -155,10 +233,10 @@ export function Fees() {
            category: "Fees",
            amount: selectedInvoiceForPayment.amount,
            status: "Success",
-           paymentMethod: "Cash"
+           paymentMethod: paymentModeInput
         });
       }
-      setInvoices(prev => prev.map(inv => inv.id === selectedInvoiceForPayment.id ? { ...inv, status: "Paid" } : inv));
+      setInvoices(prev => prev.map(inv => inv.id === selectedInvoiceForPayment.id ? { ...inv, status: "Paid", paymentMethod: paymentModeInput } : inv));
       setPaymentDialogOpen(false);
       setSelectedInvoiceForPayment(null);
     } catch (err) {
@@ -199,6 +277,74 @@ export function Fees() {
     >
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <motion.h2 variants={itemVariants} className="text-3xl font-bold tracking-tight">Fee Management</motion.h2>
+        <motion.div variants={itemVariants} className="flex flex-wrap gap-2 w-full sm:w-auto">
+          <div className="relative w-full sm:w-auto">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <Input 
+              id="fees-search-input"
+              placeholder="Search by ID, name, amount..." 
+              className="pl-9 w-full sm:w-[250px] border-none focus-visible:ring-1 bg-white"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          
+          <select
+            className="h-9 px-3 py-1 rounded-md border border-input bg-white text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1"
+            value={dateFilterType}
+            onChange={(e) => {
+              setDateFilterType(e.target.value as any);
+              setDateFilterValue('');
+            }}
+          >
+            <option value="all">All Time</option>
+            <option value="month">By Month</option>
+            <option value="date">By Date</option>
+          </select>
+          
+          {dateFilterType === 'month' && (
+            <Input
+              type="month"
+              className="h-9 w-[160px] bg-white"
+              value={dateFilterValue}
+              onChange={(e) => setDateFilterValue(e.target.value)}
+            />
+          )}
+
+          {dateFilterType === 'date' && (
+            <Input
+              type="date"
+              className="h-9 w-[160px] bg-white"
+              value={dateFilterValue}
+              onChange={(e) => setDateFilterValue(e.target.value)}
+            />
+          )}
+
+          <select
+            className="h-9 px-3 py-1 rounded-md border border-input bg-white text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 max-w-[200px] truncate"
+            value={batchFilter}
+            onChange={(e) => setBatchFilter(e.target.value)}
+          >
+            <option value="All">All Batches</option>
+            {batches.map(b => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+          
+          <select
+            className="h-9 px-3 py-1 rounded-md border border-input bg-white text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1"
+            value={paymentModeFilter}
+            onChange={(e) => setPaymentModeFilter(e.target.value)}
+          >
+            <option value="All">All Modes</option>
+            <option value="Cash">Cash</option>
+            <option value="UPI">UPI</option>
+            <option value="Bank Transfer">Bank Transfer</option>
+            <option value="Cheque">Cheque</option>
+            <option value="Card">Card</option>
+            <option value="Online Gateway">Online Gateway</option>
+          </select>
+        </motion.div>
       </div>
       
       {/* Metrics Cards */}
@@ -258,7 +404,7 @@ export function Fees() {
                 <h3 className={`font-bold flex items-center gap-2 ${selectedList === 'collected' ? 'text-emerald-800' : 'text-red-800'}`}>
                   {selectedList === 'collected' ? 'Collected Fees Breakdown' : 'Overdue Fees Breakdown'} 
                   <span className="text-xs px-2 py-0.5 rounded-full bg-white font-bold opacity-70">
-                    {selectedList === 'collected' ? collectedInvoices.length : overdueInvoices.length} entries
+                    {selectedList === 'collected' ? filteredCollectedInvoices.length : filteredOverdueInvoices.length} entries
                   </span>
                 </h3>
                 <button 
@@ -275,20 +421,21 @@ export function Fees() {
                       <th className="px-4 py-3 w-28 whitespace-nowrap">Student ID</th>
                       <th className="px-4 py-3">Student Name</th>
                       <th className="px-4 py-3">Category</th>
+                      <th className="px-4 py-3">Mode</th>
                       <th className="px-4 py-3">Due Date</th>
                       <th className="px-4 py-3 text-right">Amount</th>
                       <th className="px-4 py-3 text-center w-40">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {(selectedList === 'collected' ? collectedInvoices : overdueInvoices).length === 0 ? (
+                    {(selectedList === 'collected' ? filteredCollectedInvoices : filteredOverdueInvoices).length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-500">
-                          No {selectedList === 'collected' ? 'collected' : 'overdue'} fees found.
+                        <td colSpan={7} className="py-8 text-center text-slate-500">
+                          {search ? 'No fees found matching your search.' : `No ${selectedList === 'collected' ? 'collected' : 'overdue'} fees found.`}
                         </td>
                       </tr>
                     ) : (
-                      (selectedList === 'collected' ? collectedInvoices : overdueInvoices).map(invoice => (
+                      (selectedList === 'collected' ? filteredCollectedInvoices : filteredOverdueInvoices).map(invoice => (
                         <tr key={invoice.id} className="hover:bg-white/50 transition-colors">
                           <td className="px-4 py-3 text-xs font-mono font-medium text-slate-500 whitespace-nowrap">
                             {invoice.studentId}
@@ -299,6 +446,15 @@ export function Fees() {
                           </td>
                           <td className="px-4 py-3 text-slate-600 font-medium">
                             {invoice.category}
+                          </td>
+                          <td className="px-4 py-3">
+                            {invoice.paymentMethod ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200 uppercase tracking-wider whitespace-nowrap">
+                                {invoice.paymentMethod}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-xs italic">-</span>
+                            )}
                           </td>
                           <td className="px-4 py-3 flex items-center gap-1.5 text-slate-500">
                             <Calendar className="w-3.5 h-3.5" />
@@ -325,7 +481,10 @@ export function Fees() {
                                 <option value="Pending">Pending</option>
                               </select>
                               {invoice.status !== 'Paid' && (
-                                <button className="text-emerald-500 hover:bg-emerald-50 p-1.5 rounded-full transition-colors flex-shrink-0" title="Send Reminder">
+                                <button className="text-emerald-500 hover:bg-emerald-50 p-1.5 rounded-full transition-colors flex-shrink-0" title="Send Reminder" onClick={() => {
+                                  setSelectedInvoiceForReminder(invoice);
+                                  setReminderDialogOpen(true);
+                                }}>
                                   <Send className="w-4 h-4" />
                                 </button>
                               )}
@@ -409,16 +568,34 @@ export function Fees() {
                 {selectedInvoiceForPayment?.studentName} 
               </span>
             </div>
-            <div className="space-y-2 mt-4">
-              <label className="text-sm font-bold text-slate-700 block">Collection Date</label>
-              <Input 
-                type="date"
-                value={paymentDate}
-                max={new Date().toISOString().split("T")[0]}
-                onChange={(e) => setPaymentDate(e.target.value)}
-                className="w-full font-mono mt-1"
-                required
-              />
+            
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700 block">Payment Mode</label>
+                <select
+                  className="w-full h-10 px-3 py-2 rounded-md border border-input bg-background text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={paymentModeInput}
+                  onChange={(e) => setPaymentModeInput(e.target.value)}
+                >
+                  <option value="Cash">Cash</option>
+                  <option value="UPI">UPI</option>
+                  <option value="Bank Transfer">Bank Transfer</option>
+                  <option value="Cheque">Cheque</option>
+                  <option value="Card">Card</option>
+                  <option value="Online Gateway">Online Gateway</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700 block">Collection Date</label>
+                <Input 
+                  type="date"
+                  value={paymentDate}
+                  max={new Date().toISOString().split("T")[0]}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                  className="w-full font-mono mt-1"
+                  required
+                />
+              </div>
             </div>
           </div>
 
@@ -440,6 +617,49 @@ export function Fees() {
             >
               {isProcessingPayment ? "Processing..." : "Confirm Collection"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reminder Dialog */}
+      <Dialog open={reminderDialogOpen} onOpenChange={setReminderDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+              <MessageCircle className="h-6 w-6 text-emerald-600" />
+              Send Reminder via WhatsApp
+            </DialogTitle>
+            <DialogDescription className="text-sm pt-2">
+              Select the contact number to send a fee reminder to {selectedInvoiceForReminder?.studentName}.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {(!selectedInvoiceForReminder?.studentContact && !selectedInvoiceForReminder?.studentWhatsapp) ? (
+               <div className="text-red-500 text-sm">No contact numbers found for this student.</div>
+            ) : (
+               <div className="space-y-2">
+                 {selectedInvoiceForReminder?.studentWhatsapp && (
+                   <Button variant="outline" className="w-full justify-start text-left" onClick={() => {
+                        const message = `Hello, this is a reminder regarding the pending fee for ${selectedInvoiceForReminder?.category} of ₹${selectedInvoiceForReminder?.amount}. Please clear it at the earliest.`;
+                        window.open(`https://wa.me/${selectedInvoiceForReminder?.studentWhatsapp}?text=${encodeURIComponent(message)}`, '_blank');
+                   }}>
+                     <span className="font-bold mr-2">WhatsApp:</span> {selectedInvoiceForReminder.studentWhatsapp}
+                   </Button>
+                 )}
+                 {selectedInvoiceForReminder?.studentContact && selectedInvoiceForReminder?.studentContact !== selectedInvoiceForReminder?.studentWhatsapp && (
+                   <Button variant="outline" className="w-full justify-start text-left" onClick={() => {
+                        const message = `Hello, this is a reminder regarding the pending fee for ${selectedInvoiceForReminder?.category} of ₹${selectedInvoiceForReminder?.amount}. Please clear it at the earliest.`;
+                        window.open(`https://wa.me/${selectedInvoiceForReminder?.studentContact}?text=${encodeURIComponent(message)}`, '_blank');
+                   }}>
+                     <span className="font-bold mr-2">Contact:</span> {selectedInvoiceForReminder.studentContact}
+                   </Button>
+                 )}
+               </div>
+            )}
+          </div>
+          <DialogFooter>
+             <Button variant="outline" onClick={() => setReminderDialogOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
