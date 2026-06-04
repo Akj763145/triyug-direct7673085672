@@ -174,6 +174,9 @@ export const api = {
           name: `${p.first_name} ${p.last_name}`,
           grade: p.grade,
           contact: p.parent1_contact || 'N/A',
+          parent1_contact: p.parent1_contact,
+          parent2_contact: p.parent2_contact,
+          parent1_whatsapp: p.parent1_whatsapp,
           status: p.status, // Use actual status
           photo_url: p.photo_url || undefined,
           batch_id: p.batch_id || studentBatchMap.get(sId) || studentBatchMap.get(p.id)

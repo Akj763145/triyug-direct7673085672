@@ -371,7 +371,7 @@ export function AddStudentWizard({
         transcript_url: docUrls.transcriptUrl,
         medical_record_url: docUrls.medicalRecordUrl,
         id_proof_url: docUrls.idProofUrl,
-        status: "Pending",
+        status: "Active",
       };
 
       const { data: profileResp, error } = await api.addStudentProfile(payload);

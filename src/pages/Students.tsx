@@ -86,7 +86,11 @@ export function Students() {
   // Advanced Filtering Logic
   const filteredStudents = students.filter(s => {
     const matchesSearch = s.name.toLowerCase().includes(search.toLowerCase()) || 
-                          (s.student_id || s.id).toLowerCase().includes(search.toLowerCase());
+                          (s.student_id || s.id).toLowerCase().includes(search.toLowerCase()) ||
+                          (s.contact && s.contact.toLowerCase().includes(search.toLowerCase())) ||
+                          (s.parent1_contact && s.parent1_contact.toLowerCase().includes(search.toLowerCase())) ||
+                          (s.parent2_contact && s.parent2_contact.toLowerCase().includes(search.toLowerCase())) ||
+                          (s.parent1_whatsapp && s.parent1_whatsapp.toLowerCase().includes(search.toLowerCase()));
     const matchesGrade = gradeFilter === "All" || s.grade === gradeFilter;
     const matchesStatus = statusFilter === "All" || s.status === statusFilter;
     const matchesBatch = batchFilter === "All" || s.batch_id === batchFilter;
@@ -303,7 +307,7 @@ export function Students() {
           <div className="relative">
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input 
-              placeholder="Search by name or student ID..." 
+              placeholder="Search by name, student ID, mobile or WhatsApp no..." 
               className="pl-9 border-none focus-visible:ring-1"
               value={search}
               onChange={(e) => setSearch(e.target.value)}

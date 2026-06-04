@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS student_profiles (
   
   -- Academic Details
   grade TEXT NOT NULL,
-  status TEXT DEFAULT 'Pending' CHECK (status IN ('Pending', 'Active', 'Inactive', 'Graduated')),
+  status TEXT DEFAULT 'Active' CHECK (status IN ('Pending', 'Active', 'Inactive', 'Graduated')),
   
   -- Parent / Guardian 1
   parent1_name TEXT,
