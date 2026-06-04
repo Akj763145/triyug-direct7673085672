@@ -901,27 +901,27 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
                     ) : filteredAttendanceStudents.map((student) => {
                       const status = attendanceBreakdown.recordsMap[student.id] || 'Unmarked';
                       return (
-                        <div key={student.id} className="p-3 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
-                          <div className="flex items-center gap-3">
+                        <div key={student.id} className="p-3 flex items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
                             <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-[10px] text-indigo-600 border border-slate-200 shrink-0">
                               {student.name ? student.name.split(' ').map((n: string) => n[0]).join('').substring(0,2) : 'S'}
                             </div>
-                            <div>
-                              <span className="text-xs font-black text-slate-800 block leading-none">{student.name}</span>
-                              <span className="text-[9px] text-slate-400 font-mono font-bold tracking-tight">{student.id.split('-').shift() || student.id}</span>
+                            <div className="min-w-0">
+                              <span className="text-xs font-black text-slate-800 block leading-none truncate">{student.name}</span>
+                              <span className="text-[9px] text-slate-400 font-mono font-bold tracking-tight truncate">{student.id}</span>
                             </div>
                           </div>
-                          <div className="flex items-center gap-3">
-                            <Badge variant={status === "Present" ? "success" : status === "Absent" ? "destructive" : status === "Late" || status === "Excused" ? "warning" : "secondary"} className="text-[9px] font-black uppercase px-2 py-0.5">
+                          <div className="flex items-center gap-4 shrink-0">
+                            <Badge variant={status === "Present" ? "success" : status === "Absent" ? "destructive" : status === "Late" || status === "Excused" ? "warning" : "secondary"} className="text-[9px] font-black uppercase px-2 py-0.5 w-[60px] justify-center shrink-0 hidden sm:inline-flex">
                               {status}
                             </Badge>
-                            <div className={`flex gap-1 ${currentHoliday ? 'opacity-30 grayscale pointer-events-none' : ''}`}>
+                            <div className={`flex gap-1.5 shrink-0 ${currentHoliday ? 'opacity-30 grayscale pointer-events-none' : ''}`}>
                               {['Present', 'Absent', 'Late', 'Excused'].map((s) => (
                                 <button
                                   key={s}
                                   disabled={!!currentHoliday}
                                   onClick={() => handleToggleAttendance(student.id, s)}
-                                  className={`h-6 w-6 rounded border text-[10px] font-black transition-all ${status === s ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-400 hover:border-slate-400'}`}
+                                  className={`h-6 w-6 shrink-0 rounded border text-[10px] font-black transition-all ${status === s ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-400 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}
                                 >
                                   {s[0]}
                                 </button>
@@ -976,27 +976,27 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
                     ) : filteredAttendanceStaff.map((staff) => {
                       const status = staffAttendanceBreakdown.recordsMap[staff.id] || 'Unmarked';
                       return (
-                        <div key={staff.id} className="p-3 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
-                          <div className="flex items-center gap-3">
+                        <div key={staff.id} className="p-3 flex items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
                             <div className="h-8 w-8 rounded-lg bg-indigo-50 flex items-center justify-center font-black text-[10px] text-indigo-700 border border-indigo-100 shrink-0">
                               {staff.first_name[0]}{staff.last_name[0]}
                             </div>
-                            <div>
-                              <span className="text-xs font-black text-slate-900 block leading-none">{staff.first_name} {staff.last_name}</span>
-                              <span className="text-[9px] text-slate-400 font-mono font-black uppercase tracking-tighter">{staff.id}</span>
+                            <div className="min-w-0">
+                              <span className="text-xs font-black text-slate-900 block leading-none truncate">{staff.first_name} {staff.last_name}</span>
+                              <span className="text-[9px] text-slate-400 font-mono font-black uppercase tracking-tighter truncate">{staff.id}</span>
                             </div>
                           </div>
-                          <div className="flex items-center gap-3">
-                            <Badge variant={status === "Present" ? "success" : status === "Absent" ? "destructive" : status === "Late" ? "warning" : "outline"} className="text-[10px] font-black uppercase px-2 h-5 shadow-none">
+                          <div className="flex items-center gap-4 shrink-0">
+                            <Badge variant={status === "Present" ? "success" : status === "Absent" ? "destructive" : status === "Late" ? "warning" : "outline"} className="text-[10px] font-black uppercase px-2 h-5 shadow-none w-[70px] justify-center shrink-0 hidden sm:inline-flex">
                               {status}
                             </Badge>
-                            <div className={`flex gap-1 ${currentHoliday ? 'opacity-30 grayscale pointer-events-none' : ''}`}>
+                            <div className={`flex gap-1.5 shrink-0 ${currentHoliday ? 'opacity-30 grayscale pointer-events-none' : ''}`}>
                               {['Present', 'Absent', 'Late'].map((s) => (
                                 <button
                                   key={s}
                                   disabled={!!currentHoliday}
                                   onClick={() => handleToggleStaffAttendance(staff.id, s)}
-                                  className={`h-7 w-7 rounded border text-[10px] font-black transition-all ${status === s ? 'bg-slate-900 text-white border-slate-900 shadow-md' : 'bg-white text-slate-400 hover:border-slate-400'}`}
+                                  className={`h-7 w-7 shrink-0 rounded border text-[10px] font-black transition-all ${status === s ? 'bg-slate-900 text-white border-slate-900 shadow-md' : 'bg-white text-slate-400 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}
                                 >
                                   {s[0]}
                                 </button>
