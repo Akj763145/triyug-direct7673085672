@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { Card, CardContent } from "../components/ui/card";
 import { IndianRupee, X, Calendar, User, Send, FileText, CheckCircle2, Search, MessageCircle } from "lucide-react";
 import { api, apiCache } from "../lib/api";
@@ -19,11 +20,12 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 
 export function Fees() {
+  const location = useLocation();
   const [invoices, setInvoices] = useState<Invoice[]>(() => {
     return (apiCache.get('invoices')?.data || []) as Invoice[];
   });
   const [loading, setLoading] = useState(() => !apiCache.has('invoices'));
-  const [selectedList, setSelectedList] = useState<'collected' | 'overdue' | null>(null);
+  const [selectedList, setSelectedList] = useState<'collected' | 'overdue' | null>(location.state?.selectedList || null);
 
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<Invoice | null>(null);
@@ -38,8 +40,16 @@ export function Fees() {
 
   const [batchFilter, setBatchFilter] = useState<string>("All");
   const [batches, setBatches] = useState<{ id: string; name: string }[]>([]);
+  const [sortBy, setSortBy] = useState<string>('dueDate_desc');
   const [reminderDialogOpen, setReminderDialogOpen] = useState(false);
   const [selectedInvoiceForReminder, setSelectedInvoiceForReminder] = useState<Invoice | null>(null);
+  const [bulkReminderDialogOpen, setBulkReminderDialogOpen] = useState(false);
+  const [selectedForBulk, setSelectedForBulk] = useState<Set<string>>(new Set());
+
+  // Reset bulk selection when changing lists
+  useEffect(() => {
+    setSelectedForBulk(new Set());
+  }, [selectedList]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -95,7 +105,7 @@ export function Fees() {
   ), [invoices]);
 
   const filteredCollectedInvoices = useMemo(() => {
-    return collectedInvoices.filter(i => {
+    const filtered = collectedInvoices.filter(i => {
       const matchesSearch = !search || 
         i.studentName?.toLowerCase().includes(search.toLowerCase()) ||
         i.studentId?.toLowerCase().includes(search.toLowerCase()) ||
@@ -116,10 +126,18 @@ export function Fees() {
       
       return matchesSearch && matchesPaymentMode && matchesDate && matchesBatch;
     });
-  }, [collectedInvoices, search, paymentModeFilter, dateFilterType, dateFilterValue, batchFilter]);
+
+    return filtered.sort((a, b) => {
+      if (sortBy === 'amount_asc') return a.amount - b.amount;
+      if (sortBy === 'amount_desc') return b.amount - a.amount;
+      if (sortBy === 'dueDate_asc') return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      if (sortBy === 'dueDate_desc') return new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime();
+      return 0;
+    });
+  }, [collectedInvoices, search, paymentModeFilter, dateFilterType, dateFilterValue, batchFilter, sortBy]);
 
   const filteredOverdueInvoices = useMemo(() => {
-    return overdueInvoices.filter(i => {
+    const filtered = overdueInvoices.filter(i => {
       const matchesSearch = !search || 
         i.studentName?.toLowerCase().includes(search.toLowerCase()) ||
         i.studentId?.toLowerCase().includes(search.toLowerCase()) ||
@@ -140,7 +158,15 @@ export function Fees() {
       
       return matchesSearch && matchesPaymentMode && matchesDate && matchesBatch;
     });
-  }, [overdueInvoices, search, paymentModeFilter, dateFilterType, dateFilterValue, batchFilter]);
+
+    return filtered.sort((a, b) => {
+      if (sortBy === 'amount_asc') return a.amount - b.amount;
+      if (sortBy === 'amount_desc') return b.amount - a.amount;
+      if (sortBy === 'dueDate_asc') return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      if (sortBy === 'dueDate_desc') return new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime();
+      return 0;
+    });
+  }, [overdueInvoices, search, paymentModeFilter, dateFilterType, dateFilterValue, batchFilter, sortBy]);
 
   // Analytics Calculations
   const metrics = useMemo(() => {
@@ -344,6 +370,17 @@ export function Fees() {
             <option value="Card">Card</option>
             <option value="Online Gateway">Online Gateway</option>
           </select>
+
+          <select
+            className="h-9 px-3 py-1 rounded-md border border-input bg-white text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+          >
+            <option value="dueDate_desc">Date (New-Old)</option>
+            <option value="dueDate_asc">Date (Old-New)</option>
+            <option value="amount_desc">Amount (High-Low)</option>
+            <option value="amount_asc">Amount (Low-High)</option>
+          </select>
         </motion.div>
       </div>
       
@@ -407,17 +444,45 @@ export function Fees() {
                     {selectedList === 'collected' ? filteredCollectedInvoices.length : filteredOverdueInvoices.length} entries
                   </span>
                 </h3>
-                <button 
-                  onClick={() => setSelectedList(null)} 
-                  className={`p-1 rounded-full transition-colors ${selectedList === 'collected' ? 'hover:bg-emerald-200 text-emerald-700' : 'hover:bg-red-200 text-red-700'}`}
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {selectedList === 'overdue' && selectedForBulk.size > 0 && (
+                    <Button 
+                      size="sm" 
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white h-7 text-xs px-3 rounded-full flex items-center gap-1.5"
+                      onClick={() => setBulkReminderDialogOpen(true)}
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      Bulk Notify ({selectedForBulk.size})
+                    </Button>
+                  )}
+                  <button 
+                    onClick={() => setSelectedList(null)} 
+                    className={`p-1 rounded-full transition-colors ${selectedList === 'collected' ? 'hover:bg-emerald-200 text-emerald-700' : 'hover:bg-red-200 text-red-700'}`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
               <div className="max-h-[400px] overflow-y-auto">
                 <table className="w-full text-left border-collapse text-sm">
                   <thead className={`sticky top-0 bg-white shadow-sm z-10 text-xs uppercase font-bold ${selectedList === 'collected' ? 'text-emerald-700' : 'text-red-700'}`}>
                     <tr>
+                      {selectedList === 'overdue' && (
+                        <th className="px-4 py-3 w-10">
+                          <input 
+                            type="checkbox" 
+                            className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                            checked={filteredOverdueInvoices.length > 0 && selectedForBulk.size === filteredOverdueInvoices.length}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedForBulk(new Set(filteredOverdueInvoices.map(i => i.id)));
+                              } else {
+                                setSelectedForBulk(new Set());
+                              }
+                            }}
+                          />
+                        </th>
+                      )}
                       <th className="px-4 py-3 w-28 whitespace-nowrap">Student ID</th>
                       <th className="px-4 py-3">Student Name</th>
                       <th className="px-4 py-3">Category</th>
@@ -430,13 +495,28 @@ export function Fees() {
                   <tbody className="divide-y divide-slate-100">
                     {(selectedList === 'collected' ? filteredCollectedInvoices : filteredOverdueInvoices).length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-8 text-center text-slate-500">
+                        <td colSpan={selectedList === 'overdue' ? 8 : 7} className="py-8 text-center text-slate-500">
                           {search ? 'No fees found matching your search.' : `No ${selectedList === 'collected' ? 'collected' : 'overdue'} fees found.`}
                         </td>
                       </tr>
                     ) : (
                       (selectedList === 'collected' ? filteredCollectedInvoices : filteredOverdueInvoices).map(invoice => (
                         <tr key={invoice.id} className="hover:bg-white/50 transition-colors">
+                          {selectedList === 'overdue' && (
+                            <td className="px-4 py-3">
+                              <input 
+                                type="checkbox" 
+                                className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                checked={selectedForBulk.has(invoice.id)}
+                                onChange={(e) => {
+                                  const newSet = new Set(selectedForBulk);
+                                  if (e.target.checked) newSet.add(invoice.id);
+                                  else newSet.delete(invoice.id);
+                                  setSelectedForBulk(newSet);
+                                }}
+                              />
+                            </td>
+                          )}
                           <td className="px-4 py-3 text-xs font-mono font-medium text-slate-500 whitespace-nowrap">
                             {invoice.studentId}
                           </td>
@@ -458,7 +538,12 @@ export function Fees() {
                           </td>
                           <td className="px-4 py-3 flex items-center gap-1.5 text-slate-500">
                             <Calendar className="w-3.5 h-3.5" />
-                            {format(new Date(invoice.dueDate), "MMM dd, yyyy")}
+                            {(() => {
+                              const d = new Date(invoice.dueDate);
+                              return !isNaN(d.getTime()) 
+                                ? `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}` 
+                                : invoice.dueDate;
+                            })()}
                           </td>
                           <td className="px-4 py-3 text-right font-bold text-slate-800">
                             ₹{invoice.amount.toLocaleString()}
@@ -660,6 +745,60 @@ export function Fees() {
           </div>
           <DialogFooter>
              <Button variant="outline" onClick={() => setReminderDialogOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Reminder Dialog */}
+      <Dialog open={bulkReminderDialogOpen} onOpenChange={setBulkReminderDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+              <MessageCircle className="h-6 w-6 text-emerald-600" />
+              Bulk Send WhatsApp Reminders
+            </DialogTitle>
+            <DialogDescription className="text-sm pt-2">
+              You have selected {selectedForBulk.size} overdue invoices.
+              Click on each student below to sequentially open WhatsApp with a standardized reminder message.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 py-4 max-h-[300px] overflow-y-auto pr-2">
+            {Array.from(selectedForBulk).map(id => {
+              const invoice = filteredOverdueInvoices.find(i => i.id === id);
+              if (!invoice) return null;
+              
+              const phoneStr = invoice.studentWhatsapp || invoice.studentContact;
+              const hasPhone = !!phoneStr;
+
+              return (
+                <div key={invoice.id} className="flex items-center justify-between p-3 border rounded-md">
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-sm">{invoice.studentName}</span>
+                    <span className="text-xs text-slate-500">{invoice.category} - ₹{invoice.amount}</span>
+                  </div>
+                  {hasPhone ? (
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 h-8"
+                      onClick={() => {
+                        const message = `Hello, this is a reminder regarding the pending fee for ${invoice.category} of ₹${invoice.amount}. Please clear it at the earliest.`;
+                        window.open(`https://wa.me/${phoneStr}?text=${encodeURIComponent(message)}`, '_blank');
+                      }}
+                    >
+                      <Send className="w-3.5 h-3.5 mr-1" />
+                      Send
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-red-500 font-medium">No Contact</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+             <Button variant="outline" onClick={() => setBulkReminderDialogOpen(false)}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

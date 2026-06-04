@@ -1,16 +1,18 @@
 import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { Calendar, Users, UserCog, IndianRupee, Layers, QrCode, CheckCircle2, X, ChevronLeft, ChevronRight, Search, PartyPopper, Activity } from "lucide-react";
+import { Calendar, Users, UserCog, IndianRupee, Layers, QrCode, CheckCircle2, X, ChevronLeft, ChevronRight, Search, PartyPopper, Activity, MessageCircle, Send } from "lucide-react";
 import { api, apiCache } from "../lib/api";
-import { ActivityLog } from "../types";
+import { ActivityLog, Invoice } from "../types";
 import { 
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger 
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter
 } from "../components/ui/dialog";
 import { QRScanner } from "../components/QRScanner";
 import { HolidayManager } from "../components/HolidayManager";
 import { supabase } from "../lib/supabase";
+import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Skeleton } from "../components/ui/skeleton";
@@ -52,6 +54,7 @@ const formatDateFriendly = (dateStr: string) => {
 };
 
 export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boolean }) {
+  const navigate = useNavigate();
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [stats, setStats] = useState({
     students: 0,
@@ -82,6 +85,21 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
   const [attendanceSearch, setAttendanceSearch] = useState<string>("");
   const [staffAttendanceSearch, setStaffAttendanceSearch] = useState<string>("");
   const [holidays, setHolidays] = useState<any[]>([]);
+
+  // Overdue Invoices states
+  const [dashboardInvoices, setDashboardInvoices] = useState<Invoice[]>([]);
+  const [dashboardBatches, setDashboardBatches] = useState<{ id: string; name: string }[]>([]);
+  const [showOverdueModal, setShowOverdueModal] = useState(false);
+  const [overdueSearch, setOverdueSearch] = useState("");
+  const [overduePaymentMode, setOverduePaymentMode] = useState("All");
+  const [overdueBatchFilter, setOverdueBatchFilter] = useState("All");
+  const [overdueSort, setOverdueSort] = useState("dueDate_desc");
+  const [overdueDateType, setOverdueDateType] = useState<'all' | 'month' | 'date'>('all');
+  const [overdueDateValue, setOverdueDateValue] = useState("");
+  const [selectedForBulk, setSelectedForBulk] = useState<Set<string>>(new Set());
+  const [bulkReminderDialogOpen, setBulkReminderDialogOpen] = useState(false);
+  const [reminderDialogOpen, setReminderDialogOpen] = useState(false);
+  const [selectedInvoiceForReminder, setSelectedInvoiceForReminder] = useState<Invoice | null>(null);
 
   const loadHolidays = async () => {
     if (!supabase) return;
@@ -254,7 +272,8 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
         holidaysData,
         studentAtt,
         staffAtt,
-        enquiries
+        enquiries,
+        batches
       ] = await Promise.all([
         api.getActivityLogs(),
         api.getStudents(),
@@ -264,7 +283,8 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
         supabase.from('holidays').select('*'),
         supabase.from('student_attendance').select('*').eq('date', dateStr),
         supabase.from('staff_attendance').select('*').eq('date', dateStr),
-        api.getEnquiries()
+        api.getEnquiries(),
+        api.getBatches()
       ]);
 
       // Bulk State Updates (Reduces re-renders)
@@ -274,6 +294,8 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
       setStudentList(students);
       setFullStaffList(staff);
       setActivityLogs(logs as ActivityLog[]);
+      setDashboardInvoices((invoices as Invoice[]) || []);
+      setDashboardBatches((batches as any[]) || []);
       setStats({
         students: students.length,
         staff: staff.length,
@@ -290,6 +312,49 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
       setStaffAttendanceLoading(false);
     }
   };
+
+  const dashboardOverdueInvoices = useMemo(() => {
+    return dashboardInvoices.filter(i => 
+      i.status === 'Overdue' || 
+      (i.status !== 'Paid' && new Date(i.dueDate) < new Date())
+    );
+  }, [dashboardInvoices]);
+
+  const dashboardOverdueTotalAmount = useMemo(() => {
+    return dashboardOverdueInvoices.reduce((sum, i) => sum + i.amount, 0);
+  }, [dashboardOverdueInvoices]);
+
+  const filteredDashboardOverdueInvoices = useMemo(() => {
+    const filtered = dashboardOverdueInvoices.filter(i => {
+      const matchesSearch = !overdueSearch || 
+        i.studentName?.toLowerCase().includes(overdueSearch.toLowerCase()) ||
+        i.studentId?.toLowerCase().includes(overdueSearch.toLowerCase()) ||
+        i.category?.toLowerCase().includes(overdueSearch.toLowerCase()) ||
+        i.amount.toString().includes(overdueSearch) ||
+        i.studentContact?.toLowerCase().includes(overdueSearch.toLowerCase()) ||
+        i.studentWhatsapp?.toLowerCase().includes(overdueSearch.toLowerCase());
+
+      const matchesPaymentMode = overduePaymentMode === "All" || i.paymentMethod === overduePaymentMode;
+      const matchesBatch = overdueBatchFilter === "All" || (i.batchIds && i.batchIds.includes(overdueBatchFilter));
+      
+      let matchesDate = true;
+      if (overdueDateType === 'month' && overdueDateValue) {
+        matchesDate = i.dueDate.startsWith(overdueDateValue);
+      } else if (overdueDateType === 'date' && overdueDateValue) {
+        matchesDate = i.dueDate.startsWith(overdueDateValue);
+      }
+      
+      return matchesSearch && matchesPaymentMode && matchesDate && matchesBatch;
+    });
+
+    return filtered.sort((a, b) => {
+      if (overdueSort === 'amount_asc') return a.amount - b.amount;
+      if (overdueSort === 'amount_desc') return b.amount - a.amount;
+      if (overdueSort === 'dueDate_asc') return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      if (overdueSort === 'dueDate_desc') return new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime();
+      return 0;
+    });
+  }, [dashboardInvoices, overdueSearch, overduePaymentMode, overdueBatchFilter, overdueSort, overdueDateType, overdueDateValue]);
 
   const handleGoogleLogin = async () => {
     try {
@@ -684,7 +749,7 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
       <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-6 w-full pb-8">
         
         {/* Priority Actions */}
-        <motion.div variants={itemVariants} className="md:col-span-2 lg:col-span-1">
+        <motion.div variants={itemVariants} className="md:col-span-2 lg:col-span-2">
           <Card className="h-full bg-white rounded-3xl border border-slate-100/60 shadow-[0_4px_24px_rgba(0,0,0,0.02)] p-6 flex flex-col justify-between hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-300">
             <div className="flex justify-between items-start">
               <div className="h-10 w-10 bg-slate-50 flex items-center justify-center rounded-2xl">
@@ -698,34 +763,16 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
           </Card>
         </motion.div>
 
-        <motion.div variants={itemVariants} className="md:col-span-2 lg:col-span-2">
-          <Card className="h-full bg-slate-900 rounded-3xl border-none shadow-[0_8px_30px_rgba(0,0,0,0.08)] p-6 text-white flex flex-col justify-between overflow-hidden relative hover:shadow-[0_12px_40px_rgba(0,0,0,0.12)] transition-all duration-300">
-             <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none transform translate-x-4 -translate-y-4"><Calendar className="w-40 h-40" /></div>
-             <div className="flex justify-between items-start relative z-10">
-               <div className="h-10 w-10 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center">
-                 <CheckCircle2 className="w-5 h-5 text-indigo-300" />
-               </div>
-               <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest bg-white/10 px-3 py-1.5 rounded-full backdrop-blur-md">
-                 Action Needed
-               </span>
-             </div>
-             <div className="mt-8 relative z-10">
-               <div className="text-5xl font-black text-white">{attendanceBreakdown.unmarked}</div>
-               <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest mt-2">Unmarked Registrations • {isToday ? "Today" : formatDateFriendly(selectedDate)}</p>
-             </div>
-          </Card>
-        </motion.div>
-
-        <motion.div variants={itemVariants} className="md:col-span-2 lg:col-span-1">
-          <Card className="h-full bg-white rounded-3xl border border-slate-100/60 shadow-[0_4px_24px_rgba(0,0,0,0.02)] p-6 flex flex-col justify-between hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-300">
+        <motion.div variants={itemVariants} className="md:col-span-2 lg:col-span-2" onClick={() => setShowOverdueModal(true)}>
+          <Card className="h-full bg-white rounded-3xl border border-slate-100/60 shadow-[0_4px_24px_rgba(0,0,0,0.02)] p-6 flex flex-col justify-between hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-300 cursor-pointer">
             <div className="flex justify-between items-start">
               <div className="h-10 w-10 bg-slate-50 flex items-center justify-center rounded-2xl">
                 <IndianRupee className="w-5 h-5 text-slate-400" />
               </div>
             </div>
             <div className="mt-8">
-              <div className="text-5xl font-black tracking-tighter text-slate-800">{stats.pendingInvoices}</div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Overdue Invoices</p>
+              <div className="text-5xl font-black tracking-tighter text-slate-800">₹{dashboardOverdueTotalAmount.toLocaleString()}</div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">{dashboardOverdueInvoices.length} Overdue Invoices</p>
             </div>
           </Card>
         </motion.div>
@@ -1020,7 +1067,283 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
         </Card>
       </motion.div>
       
-      </div> {/* End Bento Grid */}
-    </motion.div>
+      {/* Overdue Invoices Modal */}
+      <Dialog open={showOverdueModal} onOpenChange={setShowOverdueModal}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center justify-between mt-2 pr-4">
+              <div>
+                <DialogTitle className="flex items-center text-xl font-bold">
+                  Overdue Invoices
+                </DialogTitle>
+                <DialogDescription className="mt-1">
+                  All pending and overdue invoices.
+                </DialogDescription>
+              </div>
+              {selectedForBulk.size > 0 && (
+                <Button 
+                  size="sm" 
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 text-sm px-4 rounded-full flex items-center gap-1.5"
+                  onClick={() => setBulkReminderDialogOpen(true)}
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  Bulk Notify ({selectedForBulk.size})
+                </Button>
+              )}
+            </div>
+          </DialogHeader>
+
+          <div className="flex flex-wrap gap-2 py-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Input 
+                placeholder="Search by ID, name, amount..." 
+                className="pl-9 w-[250px] border-slate-200 bg-white"
+                value={overdueSearch}
+                onChange={(e) => setOverdueSearch(e.target.value)}
+              />
+            </div>
+          
+            <select
+              className="h-9 px-3 py-1 rounded-md border border-input bg-white text-sm shadow-sm max-w-[200px] truncate"
+              value={overdueDateType}
+              onChange={(e) => {
+                setOverdueDateType(e.target.value as any);
+                setOverdueDateValue('');
+              }}
+            >
+              <option value="all">All Time</option>
+              <option value="month">By Month</option>
+              <option value="date">By Date</option>
+            </select>
+            
+            {overdueDateType === 'month' && (
+              <Input
+                type="month"
+                className="h-9 w-[160px] bg-white"
+                value={overdueDateValue}
+                onChange={(e) => setOverdueDateValue(e.target.value)}
+              />
+            )}
+
+            {overdueDateType === 'date' && (
+              <Input
+                type="date"
+                className="h-9 w-[160px] bg-white"
+                value={overdueDateValue}
+                onChange={(e) => setOverdueDateValue(e.target.value)}
+              />
+            )}
+
+            <select
+              className="h-9 px-3 py-1 rounded-md border border-input bg-white text-sm shadow-sm max-w-[200px] truncate"
+              value={overdueBatchFilter}
+              onChange={(e) => setOverdueBatchFilter(e.target.value)}
+            >
+              <option value="All">All Batches</option>
+              {dashboardBatches.map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+
+            <select
+              className="h-9 px-3 py-1 rounded-md border border-input bg-white text-sm shadow-sm max-w-[200px]"
+              value={overdueSort}
+              onChange={(e) => setOverdueSort(e.target.value)}
+            >
+              <option value="dueDate_desc">Date (New-Old)</option>
+              <option value="dueDate_asc">Date (Old-New)</option>
+              <option value="amount_desc">Amount (High-Low)</option>
+              <option value="amount_asc">Amount (Low-High)</option>
+            </select>
+          </div>
+
+          <div className="bg-white rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">
+                    <input 
+                      type="checkbox" 
+                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      checked={filteredDashboardOverdueInvoices.length > 0 && selectedForBulk.size === filteredDashboardOverdueInvoices.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedForBulk(new Set(filteredDashboardOverdueInvoices.map(i => i.id)));
+                        } else {
+                          setSelectedForBulk(new Set());
+                        }
+                      }}
+                    />
+                  </TableHead>
+                  <TableHead>Invoice ID</TableHead>
+                  <TableHead>Student</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Due Date</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredDashboardOverdueInvoices.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-24 text-center">
+                      No overdue invoices found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredDashboardOverdueInvoices.map((invoice, i) => (
+                    <TableRow key={invoice.id || i}>
+                      <TableCell>
+                        <input 
+                          type="checkbox" 
+                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                          checked={selectedForBulk.has(invoice.id)}
+                          onChange={(e) => {
+                            const newSet = new Set(selectedForBulk);
+                            if (e.target.checked) newSet.add(invoice.id);
+                            else newSet.delete(invoice.id);
+                            setSelectedForBulk(newSet);
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell className="font-medium text-xs">{invoice.id}</TableCell>
+                      <TableCell>
+                        <div className="font-semibold">{invoice.studentName}</div>
+                        <div className="text-xs text-slate-500">{invoice.studentId}</div>
+                      </TableCell>
+                      <TableCell className="text-sm">{invoice.category}</TableCell>
+                      <TableCell className="text-sm">
+                        {(() => {
+                          const d = new Date(invoice.dueDate);
+                          return !isNaN(d.getTime()) 
+                            ? `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}` 
+                            : invoice.dueDate;
+                        })()}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-rose-600">
+                        ₹{invoice.amount}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                          onClick={() => {
+                            setSelectedInvoiceForReminder(invoice);
+                            setReminderDialogOpen(true);
+                          }}
+                        >
+                          <Send className="w-4 h-4 mr-1" />
+                          Remind
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reminder Dialog */}
+      <Dialog open={reminderDialogOpen} onOpenChange={setReminderDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+              <MessageCircle className="h-6 w-6 text-emerald-600" />
+              Send Reminder via WhatsApp
+            </DialogTitle>
+            <DialogDescription className="text-sm pt-2">
+              Select the contact number to send a fee reminder to {selectedInvoiceForReminder?.studentName}.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {(!selectedInvoiceForReminder?.studentContact && !selectedInvoiceForReminder?.studentWhatsapp) ? (
+               <div className="text-red-500 text-sm">No contact numbers found for this student.</div>
+            ) : (
+               <div className="space-y-2">
+                 {selectedInvoiceForReminder?.studentWhatsapp && (
+                   <Button variant="outline" className="w-full justify-start text-left" onClick={() => {
+                        const message = `Hello, this is a reminder regarding the pending fee for ${selectedInvoiceForReminder?.category} of ₹${selectedInvoiceForReminder?.amount}. Please clear it at the earliest.`;
+                        window.open(`https://wa.me/${selectedInvoiceForReminder.studentWhatsapp}?text=${encodeURIComponent(message)}`, '_blank');
+                   }}>
+                     <span className="font-bold mr-2">WhatsApp:</span> {selectedInvoiceForReminder.studentWhatsapp}
+                   </Button>
+                 )}
+                 {selectedInvoiceForReminder?.studentContact && selectedInvoiceForReminder?.studentContact !== selectedInvoiceForReminder?.studentWhatsapp && (
+                   <Button variant="outline" className="w-full justify-start text-left" onClick={() => {
+                        const message = `Hello, this is a reminder regarding the pending fee for ${selectedInvoiceForReminder?.category} of ₹${selectedInvoiceForReminder?.amount}. Please clear it at the earliest.`;
+                        window.open(`https://wa.me/${selectedInvoiceForReminder?.studentContact}?text=${encodeURIComponent(message)}`, '_blank');
+                   }}>
+                     <span className="font-bold mr-2">Contact:</span> {selectedInvoiceForReminder.studentContact}
+                   </Button>
+                 )}
+               </div>
+            )}
+          </div>
+          <DialogFooter>
+             <Button variant="outline" onClick={() => setReminderDialogOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Reminder Dialog */}
+      <Dialog open={bulkReminderDialogOpen} onOpenChange={setBulkReminderDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+              <MessageCircle className="h-6 w-6 text-emerald-600" />
+              Bulk Send WhatsApp Reminders
+            </DialogTitle>
+            <DialogDescription className="text-sm pt-2">
+              You have selected {selectedForBulk.size} overdue invoices.
+              Click on each student below to sequentially open WhatsApp with a standardized reminder message.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 py-4 max-h-[300px] overflow-y-auto pr-2">
+            {Array.from(selectedForBulk).map(id => {
+              const invoice = filteredDashboardOverdueInvoices.find(i => i.id === id);
+              if (!invoice) return null;
+              
+              const phoneStr = invoice.studentWhatsapp || invoice.studentContact;
+              const hasPhone = !!phoneStr;
+
+              return (
+                <div key={invoice.id} className="flex items-center justify-between p-3 border rounded-md">
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-sm">{invoice.studentName}</span>
+                    <span className="text-xs text-slate-500">{invoice.category} - ₹{invoice.amount}</span>
+                  </div>
+                  {hasPhone ? (
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 h-8"
+                      onClick={() => {
+                        const message = `Hello, this is a reminder regarding the pending fee for ${invoice.category} of ₹${invoice.amount}. Please clear it at the earliest.`;
+                        window.open(`https://wa.me/${phoneStr}?text=${encodeURIComponent(message)}`, '_blank');
+                      }}
+                    >
+                      <Send className="w-3.5 h-3.5 mr-1" />
+                      Send
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-red-500 font-medium">No Contact</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+             <Button variant="outline" onClick={() => setBulkReminderDialogOpen(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div> {/* End Bento Grid */}
+  </motion.div>
   );
 }
