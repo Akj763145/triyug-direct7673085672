@@ -26,6 +26,16 @@ export function useAutoRefresh(callback: () => void, tables?: string[]) {
     }) as EventListener;
     
     window.addEventListener('triyuga_db_update', handler);
-    return () => window.removeEventListener('triyuga_db_update', handler);
+    
+    // Robust fallback: Background polling every 10 seconds to sync changes 
+    // across different browser profiles/devices when Realtime connects are missed
+    const pollInterval = setInterval(() => {
+      savedCallback.current();
+    }, 10000);
+
+    return () => {
+      window.removeEventListener('triyuga_db_update', handler);
+      clearInterval(pollInterval);
+    };
   }, [tablesKey]);
 }
