@@ -74,9 +74,14 @@ export async function fetchFromSupabase(table: string) {
       
       let merged = [...remoteData];
       if (table === 'expenses') {
-        const remoteIds = new Set(remoteData.map((item: any) => item.id));
-        const customLocals = localData.filter((item: any) => item && item.id && !remoteIds.has(item.id));
-        merged = [...remoteData, ...customLocals];
+        const localMap = new Map(localData.map((item: any) => [item.id, item]));
+        merged = remoteData.map((remoteItem: any) => {
+          const localItem = localMap.get(remoteItem.id);
+          if (localItem && localItem.receipt_url && !remoteItem.receipt_url) {
+            return { ...remoteItem, receipt_url: localItem.receipt_url };
+          }
+          return remoteItem;
+        });
       }
       
       apiCache.set(table, { data: merged, timestamp: Date.now() });

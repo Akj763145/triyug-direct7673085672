@@ -3,7 +3,7 @@ import { Card, CardContent } from "../components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { IndianRupee, Plus, CheckCircle2, Search, Filter, ArrowUpDown, X, Paperclip, FileText, UploadCloud, Download, Printer, Check, Ban, Lock, ShieldCheck, AlertCircle, Trash2 } from "lucide-react";
+import { IndianRupee, Plus, CheckCircle2, Search, Filter, ArrowUpDown, X, Paperclip, FileText, UploadCloud, Download, Printer, Check, Ban, Lock, ShieldCheck, AlertCircle, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { api } from "../lib/api";
@@ -81,6 +81,9 @@ export function Expenses() {
 
   const [userRole, setUserRole] = useState(() => localStorage.getItem("triyuga_user_role") || "Admin");
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
   const loadExpenses = async () => {
     const data = await api.getExpenses();
     setExpenses(data as Expense[]);
@@ -123,6 +126,10 @@ export function Expenses() {
       window.removeEventListener('triyuga_permissions_updated', handleRoleChange);
     };
   }, []);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, filterCategory, filterStatus, sortBy]);
 
   const itemVariants = {
     hidden: { opacity: 0, y: 10 },
@@ -261,6 +268,30 @@ export function Expenses() {
       if (sortBy === "amount-asc") return a.amount - b.amount;
       return 0;
     });
+
+  const totalPages = Math.ceil(filteredAndSortedExpenses.length / itemsPerPage);
+  const finalCurrentPage = Math.min(currentPage, totalPages || 1);
+  const paginatedExpenses = filteredAndSortedExpenses.slice(
+    (finalCurrentPage - 1) * itemsPerPage,
+    finalCurrentPage * itemsPerPage
+  );
+
+  const getPageNumbers = () => {
+    const pages: (number | string)[] = [];
+    for (let i = 1; i <= totalPages; i++) {
+      if (
+        totalPages <= 5 ||
+        i === 1 ||
+        i === totalPages ||
+        (i >= finalCurrentPage - 1 && i <= finalCurrentPage + 1)
+      ) {
+        pages.push(i);
+      } else if (i === finalCurrentPage - 2 || i === finalCurrentPage + 2) {
+        pages.push("...");
+      }
+    }
+    return pages.filter((item, index, arr) => item !== "..." || arr[index - 1] !== "...");
+  };
 
   const allCategories = ["Salary", "Utilities", "Maintenance", "Supplies", "Other", ...savedCustomCategories];
 
@@ -544,7 +575,7 @@ export function Expenses() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredAndSortedExpenses.map((exp) => (
+                  paginatedExpenses.map((exp) => (
                     <motion.tr 
                       key={exp.id}
                       variants={itemVariants}
@@ -685,6 +716,47 @@ export function Expenses() {
               </AnimatePresence>
             </TableBody>
           </Table>
+          
+          {!loading && filteredAndSortedExpenses.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 border-t bg-slate-50/50 border-slate-100 text-slate-600">
+              <p className="text-xs uppercase tracking-wider font-semibold text-slate-500">
+                Showing {Math.min(filteredAndSortedExpenses.length - (finalCurrentPage - 1) * itemsPerPage, itemsPerPage)} of {filteredAndSortedExpenses.length} Expenses
+              </p>
+              <div className="flex items-center space-x-2">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={finalCurrentPage === 1}
+                  className="h-8 text-xs font-semibold"
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1 text-slate-500" /> Prev
+                </Button>
+                <div className="flex items-center space-x-1">
+                  {getPageNumbers().map((pageNum, idx) => (
+                    <Button 
+                      key={idx} 
+                      variant={finalCurrentPage === pageNum ? "default" : "ghost"}
+                      size="sm"
+                      className={`h-8 w-8 p-0 text-xs font-semibold ${pageNum === "..." ? "pointer-events-none text-slate-400" : ""}`}
+                      onClick={() => typeof pageNum === "number" && setCurrentPage(pageNum)}
+                    >
+                      {pageNum}
+                    </Button>
+                  ))}
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={finalCurrentPage === totalPages}
+                  className="h-8 text-xs font-semibold"
+                >
+                  Next <ChevronRight className="h-4 w-4 ml-1 text-slate-500" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
