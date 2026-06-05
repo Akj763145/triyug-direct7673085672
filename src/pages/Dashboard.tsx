@@ -538,13 +538,20 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
       () => { setNeedsAuth(true); setUser(null); setToken(null); }
     );
 
-    // Real-time listener for enquiries to update pending count instantly
+    // Real-time listener for enquiries and expenses to update pending counts and statistics instantly
     if (supabase) {
       const channel = supabase
-        .channel('enquiries-realtime')
+        .channel('dashboard-realtime')
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'enquiries' },
+          () => {
+            loadDashboardData(selectedDate);
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'expenses' },
           () => {
             loadDashboardData(selectedDate);
           }

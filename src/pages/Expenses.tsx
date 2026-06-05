@@ -7,6 +7,7 @@ import { IndianRupee, Plus, CheckCircle2, Search, Filter, ArrowUpDown, X, Paperc
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { api } from "../lib/api";
+import { supabase } from "../lib/supabase";
 import { Expense } from "../types";
 import { Skeleton } from "../components/ui/skeleton";
 import { motion, AnimatePresence } from "motion/react";
@@ -93,6 +94,23 @@ export function Expenses() {
       try {
         setSavedCustomCategories(JSON.parse(savedCats));
       } catch(e) {}
+    }
+
+    if (supabase) {
+      const channel = supabase
+        .channel('expenses-realtime')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'expenses' },
+          () => {
+            loadExpenses();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
   }, []);
 
