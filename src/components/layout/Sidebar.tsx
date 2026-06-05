@@ -5,6 +5,9 @@ import { Button } from "../ui/button";
 import { motion, AnimatePresence } from "motion/react";
 import { useState, useEffect } from "react";
 import { hasPermission } from "../../lib/permissions";
+import { supabase } from "../../lib/supabase";
+import { api, invalidateApiCache } from "../../lib/api";
+import { useAutoRefresh } from "../../hooks/useAutoRefresh";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -15,6 +18,29 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const navigate = useNavigate();
   const [permissionsTrigger, setPermissionsTrigger] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
+  const [hasPendingExpenses, setHasPendingExpenses] = useState(false);
+
+  const checkPendingExpenses = async () => {
+    try {
+      const data = await api.getExpenses();
+      if (data && Array.isArray(data)) {
+        const hasPending = data.some((exp: any) => 
+          exp && ["Pending", "Awaiting Approval"].includes(exp.status)
+        );
+        setHasPendingExpenses(hasPending);
+      }
+    } catch (err) {
+      console.error("Error fetching pending expenses for sidebar:", err);
+    }
+  };
+
+  useEffect(() => {
+    checkPendingExpenses();
+  }, []);
+
+  useAutoRefresh(() => {
+    checkPendingExpenses();
+  }, ['expenses']);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -196,6 +222,16 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                       </motion.span>
                     )}
                   </AnimatePresence>
+
+                  {item.name === "Expense Management" && hasPendingExpenses && (
+                    <span className={cn(
+                      "absolute flex h-2 w-2 rounded-full",
+                      isOpen ? "right-4 top-1/2 -translate-y-1/2" : "right-1.5 top-1.5"
+                    )}>
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                    </span>
+                  )}
 
                   {isActive && (
                     <motion.div 

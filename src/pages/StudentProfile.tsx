@@ -98,6 +98,7 @@ import {
   Cell,
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 import { QRCodeSVG } from "qrcode.react";
 import { apiCache } from "../lib/api";
 
@@ -808,6 +809,10 @@ export function StudentProfile() {
       supabase.removeChannel(channel);
     };
   }, [id, fetchStudentData, fetchAttendance, supabase]);
+
+  useAutoRefresh(() => {
+    fetchStudentData(true);
+  }, ['students', 'student_profiles', 'invoices', 'transactions', 'student_attendance']);
 
   const handleAddCustomFee = async () => {
     if (!id || !supabase || !student) return;

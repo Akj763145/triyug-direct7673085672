@@ -14,6 +14,7 @@ import { Student } from "../types";
 import Papa from "papaparse";
 import { motion, AnimatePresence } from "motion/react";
 import { AddStudentWizard } from "../components/AddStudentWizard";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 export function Students() {
   const navigate = useNavigate();
@@ -68,6 +69,10 @@ export function Students() {
   useEffect(() => {
     loadStudents();
   }, []);
+
+  useAutoRefresh(() => {
+    loadStudents();
+  }, ['students', 'student_profiles']);
 
   const containerVariants = {
     hidden: { opacity: 0 },

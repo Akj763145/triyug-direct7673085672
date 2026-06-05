@@ -7,6 +7,7 @@ import { MessageSquareText, Search, Plus, Trash2, CheckCircle2, UserPlus, Clock,
 import { motion, AnimatePresence } from "motion/react";
 import { api, apiCache } from "../lib/api";
 import Papa from "papaparse";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 type EnquiryStatus = "New" | "Follow-up" | "Converted" | "Dropped";
 
@@ -245,6 +246,10 @@ export function Enquiries() {
   useEffect(() => {
     fetchEnquiries();
   }, []);
+
+  useAutoRefresh(() => {
+    fetchEnquiries();
+  }, ['enquiries']);
 
   // Reset to first page when filtering
   useEffect(() => {

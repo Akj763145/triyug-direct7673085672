@@ -8,8 +8,15 @@ const CACHE_TTL_MS = 60000; // 60 seconds memory cache for repeated views
 export function invalidateApiCache(table?: string) {
   if (table) {
     apiCache.delete(table);
+    // Suppress dispatch if running in a non-browser environment
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('triyuga_db_update', { detail: { table } }));
+    }
   } else {
     apiCache.clear();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('triyuga_db_update', { detail: { table: '*' } }));
+    }
   }
 }
 

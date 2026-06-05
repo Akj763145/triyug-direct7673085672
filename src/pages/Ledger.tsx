@@ -7,6 +7,7 @@ import { Transaction } from "../types";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { Skeleton } from "../components/ui/skeleton";
 import { motion, AnimatePresence } from "motion/react";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 const expenseData = [
   { name: "Payroll", value: 450000 },
@@ -20,14 +21,19 @@ export function Ledger() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const loadTransactions = async () => {
+    const data = await api.getTransactions();
+    setTransactions(data as Transaction[]);
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const loadTransactions = async () => {
-      const data = await api.getTransactions();
-      setTransactions(data as Transaction[]);
-      setLoading(false);
-    };
     loadTransactions();
   }, []);
+
+  useAutoRefresh(() => {
+    loadTransactions();
+  }, ['transactions']);
 
   const containerVariants = {
     hidden: { opacity: 0 },

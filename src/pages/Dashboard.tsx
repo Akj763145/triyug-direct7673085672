@@ -18,6 +18,7 @@ import { Badge } from "../components/ui/badge";
 import { Skeleton } from "../components/ui/skeleton";
 import { motion, AnimatePresence } from "motion/react";
 import { initAuth, googleSignIn, getAccessToken, logout as googleLogout } from "../lib/auth";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 import { User } from "firebase/auth";
 
 const playBeep = () => {
@@ -537,32 +538,12 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
       (u, t) => { setNeedsAuth(false); setUser(u); setToken(t); },
       () => { setNeedsAuth(true); setUser(null); setToken(null); }
     );
-
-    // Real-time listener for enquiries and expenses to update pending counts and statistics instantly
-    if (supabase) {
-      const channel = supabase
-        .channel('dashboard-realtime')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'enquiries' },
-          () => {
-            loadDashboardData(selectedDate);
-          }
-        )
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'expenses' },
-          () => {
-            loadDashboardData(selectedDate);
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }
   }, []);
+
+  // Real-time listener for updates to keep dashboard perfectly in sync
+  useAutoRefresh(() => {
+    loadDashboardData(selectedDate);
+  }, ['enquiries', 'expenses', 'students', 'student_profiles']);
 
   useEffect(() => {
     // Only fetch date-specific data when date changes after initial load

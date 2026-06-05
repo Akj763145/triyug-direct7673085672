@@ -11,6 +11,7 @@ import { supabase } from "../lib/supabase";
 import { Expense } from "../types";
 import { Skeleton } from "../components/ui/skeleton";
 import { motion, AnimatePresence } from "motion/react";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 function convertNumberToWords(amount: number): string {
   const singleDigits = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
@@ -70,6 +71,8 @@ export function Expenses() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterCategory, setFilterCategory] = useState("All Categories");
   const [filterStatus, setFilterStatus] = useState("All Status");
+  const [filterMonth, setFilterMonth] = useState("All Months");
+  const [filterDate, setFilterDate] = useState("");
   const [sortBy, setSortBy] = useState("date-desc");
   
   const [savedCustomCategories, setSavedCustomCategories] = useState<string[]>([]);
@@ -98,24 +101,11 @@ export function Expenses() {
         setSavedCustomCategories(JSON.parse(savedCats));
       } catch(e) {}
     }
-
-    if (supabase) {
-      const channel = supabase
-        .channel('expenses-realtime')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'expenses' },
-          () => {
-            loadExpenses();
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }
   }, []);
+
+  useAutoRefresh(() => {
+    loadExpenses();
+  }, ['expenses']);
 
   useEffect(() => {
     const handleRoleChange = () => {
@@ -129,7 +119,7 @@ export function Expenses() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, filterCategory, filterStatus, sortBy]);
+  }, [searchQuery, filterCategory, filterStatus, sortBy, filterMonth, filterDate]);
 
   const itemVariants = {
     hidden: { opacity: 0, y: 10 },
@@ -259,7 +249,20 @@ export function Expenses() {
                             exp.category.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesCategory = filterCategory === "All Categories" || exp.category === filterCategory;
       const matchesStatus = filterStatus === "All Status" || exp.status === filterStatus;
-      return matchesSearch && matchesCategory && matchesStatus;
+      
+      const matchesMonth = (() => {
+        if (filterMonth === "All Months") return true;
+        const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        if (!exp.date) return false;
+        const parts = exp.date.split('-');
+        if (parts.length < 2) return false;
+        const monthIndex = parseInt(parts[1], 10) - 1;
+        return months[monthIndex] === filterMonth;
+      })();
+
+      const matchesDate = !filterDate || exp.date === filterDate;
+
+      return matchesSearch && matchesCategory && matchesStatus && matchesMonth && matchesDate;
     })
     .sort((a, b) => {
       if (sortBy === "date-desc") return new Date(b.date).getTime() - new Date(a.date).getTime();
@@ -294,6 +297,7 @@ export function Expenses() {
   };
 
   const allCategories = ["Salary", "Utilities", "Maintenance", "Supplies", "Other", ...savedCustomCategories];
+  const pendingExpensesCount = expenses.filter(exp => ["Pending", "Awaiting Approval"].includes(exp.status)).length;
 
   if (loading) {
     return (
@@ -326,7 +330,15 @@ export function Expenses() {
     <div className="space-y-6">
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 border-none">Expense Management</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-3xl font-bold tracking-tight text-slate-900 border-none">Expense Management</h2>
+            {pendingExpensesCount > 0 && (
+              <span className="relative flex h-3.5 w-3.5" title={`${pendingExpensesCount} expenses awaiting review`}>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500"></span>
+              </span>
+            )}
+          </div>
           <p className="text-xs text-slate-500 mt-1">
             Approval threshold is set to <span className="font-semibold text-slate-800 bg-amber-50 px-1 py-0.5 rounded border border-amber-200">₹5,000</span> for auditing and super-admin sign-offs.
           </p>
@@ -498,55 +510,165 @@ export function Expenses() {
           </Dialog>
         </div>
       </div>
+
+      {pendingExpensesCount > 0 && (
+        <div className="bg-rose-50/60 border border-slate-200/60 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-slate-700 animate-in fade-in slide-in-from-top-1 duration-300">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-rose-100/80 text-rose-700 rounded-lg shrink-0 mt-0.5 relative animate-bounce h-9 w-9 flex items-center justify-center">
+              <span className="animate-ping absolute -top-0.5 -right-0.5 inline-flex h-2 w-2 rounded-full bg-rose-400 opacity-90"></span>
+              <AlertCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-rose-950">Pending Approval Attention</h4>
+              <p className="text-xs text-rose-700 mt-0.5">
+                {userRole === "Admin" ? (
+                  <>There are <span className="font-semibold underline text-rose-900">{pendingExpensesCount}</span> expense claims awaiting super-admin approval or payment clearance.</>
+                ) : (
+                  <>There are <span className="font-semibold underline text-rose-900">{pendingExpensesCount}</span> submitted expenses currently pending in the system.</>
+                )}
+              </p>
+            </div>
+          </div>
+          {filterStatus !== "Pending" && filterStatus !== "Awaiting Approval" && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => {
+                const hasAwaiting = expenses.some(e => e.status === "Awaiting Approval");
+                setFilterStatus(hasAwaiting ? "Awaiting Approval" : "Pending");
+              }} 
+              className="border-rose-200 hover:bg-rose-100 bg-white text-rose-950 font-semibold shrink-0 self-start sm:self-auto text-xs h-8"
+            >
+              Filter Awaiting Tasks
+            </Button>
+          )}
+        </div>
+      )}
     </div>
       
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 h-4 w-4" />
-          <Input 
-            placeholder="Search expenses by description..." 
-            className="pl-10"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-        <div className="flex gap-4">
-          <div className="relative">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 h-4 w-4 z-10" />
-            <select 
-              className="flex h-10 w-full rounded-md border border-input bg-background pl-10 pr-8 py-2 text-sm ring-offset-background appearance-none"
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
+      <div className="flex flex-col gap-4 mb-6 bg-slate-50/50 p-4 rounded-xl border border-slate-200/60 shadow-xs">
+        <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 h-4 w-4" />
+            <Input 
+              placeholder="Search expenses by description..." 
+              className="pl-10 h-10 bg-white"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          {(searchQuery !== "" || filterCategory !== "All Categories" || filterStatus !== "All Status" || filterMonth !== "All Months" || filterDate !== "") && (
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setSearchQuery("");
+                setFilterCategory("All Categories");
+                setFilterStatus("All Status");
+                setFilterMonth("All Months");
+                setFilterDate("");
+              }}
+              className="h-10 text-xs font-semibold px-4 border-dashed border-slate-300 text-slate-600 hover:text-slate-900 shrink-0 self-start md:self-auto"
             >
-              <option value="All Categories">All Categories</option>
-              {allCategories.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
+              <X className="h-4 w-4 mr-1.5 text-slate-400" /> Clear Filters
+            </Button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {/* Categories select */}
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Category</span>
+            <div className="relative">
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 h-3.5 w-3.5 z-10" />
+              <select 
+                className="flex h-10 w-full rounded-md border border-input bg-white pl-9 pr-2 py-2 text-xs sm:text-sm ring-offset-background appearance-none cursor-pointer text-slate-700"
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+              >
+                <option value="All Categories">All Categories</option>
+                {allCategories.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
           </div>
           
-          <select 
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-          >
-            <option value="All Status">All Status</option>
-            <option value="Pending">Pending</option>
-            <option value="Paid">Paid</option>
-          </select>
-
-          <div className="relative">
-             <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 h-4 w-4 z-10" />
+          {/* Status Select */}
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Status</span>
             <select 
-              className="flex h-10 w-full rounded-md border border-input bg-background pl-10 pr-8 py-2 text-sm ring-offset-background appearance-none"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
+              className="flex h-10 w-full rounded-md border border-input bg-white px-3 py-2 text-xs sm:text-sm ring-offset-background cursor-pointer text-slate-700"
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
             >
-              <option value="date-desc">Newest First</option>
-              <option value="date-asc">Oldest First</option>
-              <option value="amount-desc">Highest Amount</option>
-              <option value="amount-asc">Lowest Amount</option>
+              <option value="All Status">All Status</option>
+              <option value="Pending">Pending</option>
+              <option value="Paid">Paid</option>
             </select>
+          </div>
+
+          {/* Month Select */}
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Month</span>
+            <select 
+              className="flex h-10 w-full rounded-md border border-input bg-white px-3 py-2 text-xs sm:text-sm ring-offset-background cursor-pointer text-slate-700"
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(e.target.value)}
+            >
+              <option value="All Months">All Months</option>
+              <option value="January">January</option>
+              <option value="February">February</option>
+              <option value="March">March</option>
+              <option value="April">April</option>
+              <option value="May">May</option>
+              <option value="June">June</option>
+              <option value="July">July</option>
+              <option value="August">August</option>
+              <option value="September">September</option>
+              <option value="October">October</option>
+              <option value="November">November</option>
+              <option value="December">December</option>
+            </select>
+          </div>
+
+          {/* Date Select */}
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Specific Date</span>
+            <div className="relative flex items-center">
+              <input 
+                type="date"
+                className="flex h-10 w-full rounded-md border border-input bg-white px-3 py-2 text-xs sm:text-sm ring-offset-background cursor-pointer text-slate-700"
+                value={filterDate}
+                onChange={(e) => setFilterDate(e.target.value)}
+              />
+              {filterDate && (
+                <button 
+                  onClick={() => setFilterDate("")} 
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100"
+                  type="button"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Sort Select */}
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Sort Order</span>
+            <div className="relative">
+              <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 h-3.5 w-3.5 z-10" />
+              <select 
+                className="flex h-10 w-full rounded-md border border-input bg-white pl-9 pr-2 py-2 text-xs sm:text-sm ring-offset-background appearance-none cursor-pointer text-slate-700"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+              >
+                <option value="date-desc">Newest First</option>
+                <option value="date-asc">Oldest First</option>
+                <option value="amount-desc">Highest Amount</option>
+                <option value="amount-asc">Lowest Amount</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
@@ -597,9 +719,15 @@ export function Expenses() {
                           </Badge>
                         )}
                         {exp.status === "Awaiting Approval" && (
-                          <Badge variant="info" className="font-semibold px-2.5 py-0.5 bg-indigo-50 text-indigo-700 border-indigo-200">
-                            Awaiting Approval
-                          </Badge>
+                          <div className="flex items-center gap-1.5">
+                            <span className="relative flex h-2 w-2 shrink-0">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                            </span>
+                            <Badge variant="info" className="font-semibold px-2.5 py-0.5 bg-rose-50 text-rose-700 border-rose-200">
+                              Awaiting Approval
+                            </Badge>
+                          </div>
                         )}
                         {exp.status === "Approved" && (
                           <Badge variant="success" className="font-semibold px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border-emerald-200">
@@ -607,9 +735,15 @@ export function Expenses() {
                           </Badge>
                         )}
                         {exp.status === "Pending" && (
-                          <Badge variant="warning" className="font-semibold px-2.5 py-0.5">
-                            Pending
-                          </Badge>
+                          <div className="flex items-center gap-1.5">
+                            <span className="relative flex h-2 w-2 shrink-0">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                            </span>
+                            <Badge variant="warning" className="font-semibold px-2.5 py-0.5">
+                              Pending
+                            </Badge>
+                          </div>
                         )}
                         {exp.status === "Rejected" && (
                           <Badge variant="destructive" className="font-semibold px-2.5 py-0.5">

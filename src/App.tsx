@@ -21,7 +21,8 @@ import { Login } from "./pages/Login";
 import { AccessDenied } from "./components/AccessDenied";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { AnimatePresence } from "motion/react";
-import { api } from "./lib/api";
+import { api, invalidateApiCache } from "./lib/api";
+import { supabase } from "./lib/supabase";
 import { hasPermission, PermissionKey, refreshPermissions } from "./lib/permissions";
 
 // Route wrapper mapping paths and roles to authorization criteria
@@ -131,6 +132,26 @@ export default function App() {
       ]).catch(err => {
         console.warn("Background prefetching did not complete fully:", err);
       });
+      
+      // Global real-time listener for multi-user seamless updates
+      if (supabase) {
+        const globalRealtime = supabase
+          .channel('global-app-sync')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public' },
+            (payload) => {
+              if (payload.table) {
+                invalidateApiCache(payload.table);
+              }
+            }
+          )
+          .subscribe();
+
+        return () => {
+          supabase.removeChannel(globalRealtime);
+        };
+      }
     }
   }, [isAuthenticated]);
 
