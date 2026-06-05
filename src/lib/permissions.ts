@@ -1,6 +1,6 @@
 import { api } from './api';
 
-export type PermissionKey = 'dashboard' | 'students' | 'staff' | 'batches' | 'fees' | 'ledger' | 'resources' | 'enquiries';
+export type PermissionKey = 'dashboard' | 'students' | 'staff' | 'batches' | 'fees' | 'ledger' | 'expenses' | 'enquiries';
 
 export interface RolePermissions {
   dashboard: boolean;
@@ -9,7 +9,7 @@ export interface RolePermissions {
   batches: boolean;
   fees: boolean;
   ledger: boolean;
-  resources: boolean;
+  expenses: boolean;
   enquiries: boolean;
   [key: string]: boolean;
 }
@@ -22,7 +22,7 @@ export const defaultPermissions: Record<string, RolePermissions> = {
     batches: true,
     fees: true,
     ledger: true,
-    resources: true,
+    expenses: true,
     enquiries: true,
   },
   Receptionist: {
@@ -32,7 +32,7 @@ export const defaultPermissions: Record<string, RolePermissions> = {
     batches: false,
     fees: true,
     ledger: false,
-    resources: true,
+    expenses: true,
     enquiries: true,
   }
 };
@@ -115,6 +115,6 @@ export function getPermissionKeyFromPath(path: string): PermissionKey {
   if (path.startsWith('/batches')) return 'batches';
   if (path.startsWith('/fees')) return 'fees';
   if (path.startsWith('/ledger')) return 'ledger';
-  if (path.startsWith('/resources')) return 'resources';
+  if (path.startsWith('/expenses')) return 'expenses';
   return 'dashboard';
 }

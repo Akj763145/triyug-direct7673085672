@@ -49,6 +49,7 @@ export interface Student {
   visa_status?: string;
   mother_tongue?: string;
   primary_language?: string;
+  transport_facilitated?: boolean;
 
   // Parent/Guardian 1
   parent1_name?: string;
@@ -135,12 +136,14 @@ export interface LedgerTransaction {
 }
 
 
-export interface Resource {
+export interface Expense {
   id: string;
-  name: string;
-  category: "Physical" | "Digital";
-  status: "Available" | "In Use" | "Damaged";
-  location: string;
+  description: string;
+  category: string;
+  amount: number;
+  date: string;
+  status: "Paid" | "Pending";
+  receipt_url?: string;
 }
 
 export interface ActivityLog {

@@ -14,7 +14,7 @@ import { StaffProfile } from "./pages/StaffProfile";
 import { Fees } from "./pages/Fees";
 import { Ledger } from "./pages/Ledger";
 import Batches from "./pages/Batches";
-import { Resources } from "./pages/Resources";
+import { Expenses } from "./pages/Expenses";
 import { Enquiries } from "./pages/Enquiries";
 import { Permissions } from "./pages/Permissions";
 import { Login } from "./pages/Login";
@@ -125,7 +125,7 @@ export default function App() {
         api.getStudents(),
         api.getStaff(),
         api.getInvoices(),
-        api.getResources(),
+        api.getExpenses(),
         api.getActivityLogs(),
         api.getBatches()
       ]).catch(err => {
@@ -163,7 +163,7 @@ export default function App() {
             <Route path="/fees" element={<PermittedRoute element={<Fees />} permissionKey="fees" />} />
             <Route path="/ledger" element={<PermittedRoute element={<Ledger />} permissionKey="ledger" />} />
             <Route path="/batches" element={<PermittedRoute element={<Batches />} permissionKey="batches" />} />
-            <Route path="/resources" element={<PermittedRoute element={<Resources />} permissionKey="resources" />} />
+            <Route path="/expenses" element={<PermittedRoute element={<Expenses />} permissionKey="expenses" />} />
             <Route path="/permissions" element={<AdminRoute element={<Permissions />} />} />
             <Route path="/login" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />

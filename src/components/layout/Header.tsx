@@ -16,7 +16,7 @@ export function Header({ toggleSidebar }: HeaderProps) {
     if (path.startsWith('/batches')) return "Batch Management";
     if (path.startsWith('/fees')) return "Fee Management";
     if (path.startsWith('/ledger')) return "Ledger";
-    if (path.startsWith('/resources')) return "Resource Management";
+    if (path.startsWith('/expenses')) return "Expense Management";
     if (path.startsWith('/permissions')) return "Access Controls";
     return "Dashboard";
   };

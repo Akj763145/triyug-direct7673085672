@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { Student, Staff, LedgerInvoice, LedgerTransaction, Resource, ActivityLog } from '../types'
+import { Student, Staff, LedgerInvoice, LedgerTransaction, Expense, ActivityLog } from '../types'
 
 // Setup short-lived in-memory lookup cache to provide lightning fast dashboard and profile transitions
 export const apiCache = new Map<string, { data: any; timestamp: number }>();
@@ -20,8 +20,8 @@ function getLocalFallback(table: string): any[] {
     // Provide sensible initial mock values if absent
     if (table === 'role_permissions') {
       return [
-        { role: 'Admin', permissions: { dashboard: true, students: true, staff: true, batches: true, fees: true, ledger: true, resources: true, enquiries: true } },
-        { role: 'Receptionist', permissions: { dashboard: true, students: true, staff: false, batches: true, fees: true, ledger: false, resources: true, enquiries: true } }
+        { role: 'Admin', permissions: { dashboard: true, students: true, staff: true, batches: true, fees: true, ledger: true, expenses: true, enquiries: true } },
+        { role: 'Receptionist', permissions: { dashboard: true, students: true, staff: false, batches: true, fees: true, ledger: false, expenses: true, enquiries: true } }
       ];
     }
     if (table === 'users') {
@@ -69,10 +69,19 @@ export async function fetchFromSupabase(table: string) {
         console.error(`Error fetching from ${table}:`, error)
         return getLocalFallback(table);
       }
-      const result = data || [];
-      apiCache.set(table, { data: result, timestamp: Date.now() });
-      setLocalFallback(table, result);
-      return result;
+      const remoteData = data || [];
+      const localData = getLocalFallback(table);
+      
+      let merged = [...remoteData];
+      if (table === 'expenses') {
+        const remoteIds = new Set(remoteData.map((item: any) => item.id));
+        const customLocals = localData.filter((item: any) => item && item.id && !remoteIds.has(item.id));
+        merged = [...remoteData, ...customLocals];
+      }
+      
+      apiCache.set(table, { data: merged, timestamp: Date.now() });
+      setLocalFallback(table, merged);
+      return merged;
     } catch (e) {
       console.error(`Exception fetching from ${table}:`, e)
       return getLocalFallback(table);
@@ -92,18 +101,45 @@ async function insertToSupabase(table: string, payload: any) {
   if (supabase) {
     try {
       const { data, error } = await supabase.from(table).insert([payload]).select()
-      if (error) throw error
+      if (error) {
+        // Handle missing column for receipt_url gracefully
+        if (error.message && error.message.includes('receipt_url') && table === 'expenses') {
+          console.warn("Got error with receipt_url column in remote Supabase table. Retrying with sanitized payload...", error.message);
+          const { receipt_url, ...sanitized } = payload;
+          const retryResult = await supabase.from(table).insert([sanitized]).select();
+          if (retryResult.error) throw retryResult.error;
+          
+          // Successful retry. Persist full payload locally so we still see the receipt link
+          const current = getLocalFallback(table);
+          if (!current.some((item: any) => item && item.id === payload.id)) {
+            current.push(payload);
+            setLocalFallback(table, current);
+          }
+          return { data: retryResult.data, error: null };
+        }
+        throw error;
+      }
       const current = getLocalFallback(table);
-      current.push(payload);
-      setLocalFallback(table, current);
+      if (!current.some((item: any) => item && item.id === payload.id)) {
+        current.push(payload);
+        setLocalFallback(table, current);
+      }
       return { data, error: null }
     } catch (error) {
       console.error(`Error inserting to ${table}:`, error)
+      const current = getLocalFallback(table);
+      if (!current.some((item: any) => item && item.id === payload.id)) {
+        current.push(payload);
+        setLocalFallback(table, current);
+      }
+      return { data: [payload], error }
     }
   }
   const current = getLocalFallback(table);
-  current.push(payload);
-  setLocalFallback(table, current);
+  if (!current.some((item: any) => item && item.id === payload.id)) {
+    current.push(payload);
+    setLocalFallback(table, current);
+  }
   return { data: [payload], error: null }
 }
 
@@ -179,6 +215,7 @@ export const api = {
           parent1_whatsapp: p.parent1_whatsapp,
           status: p.status, // Use actual status
           photo_url: p.photo_url || undefined,
+          transport_facilitated: p.transport_facilitated,
           batch_id: p.batch_id || studentBatchMap.get(sId) || studentBatchMap.get(p.id)
         };
       });
@@ -198,6 +235,37 @@ export const api = {
   addStudent: (student: Omit<Student, 'id'>) => {
     const defaultId = `STU-${Math.floor(Math.random() * 10000)}`
     return insertToSupabase('students', { ...student, id: defaultId })
+  },
+  updateStudentTransport: async (id: string, transport_facilitated: boolean) => {
+    invalidateApiCache('students');
+    invalidateApiCache('student_profiles');
+    
+    // Always persist locally to avoid UI reset if Supabase fails (e.g. missing column)
+    const currentProfiles = getLocalFallback('student_profiles');
+    const updatedProfiles = currentProfiles.map(c => c.student_id === id || c.id === id ? { ...c, transport_facilitated } : c);
+    setLocalFallback('student_profiles', updatedProfiles);
+    
+    const currentStudents = getLocalFallback('students');
+    const updatedStudents = currentStudents.map(c => c.id === id ? { ...c, transport_facilitated } : c);
+    setLocalFallback('students', updatedStudents);
+
+    if (supabase) {
+      try {
+        await supabase.from('student_profiles').update({ transport_facilitated }).eq('student_id', id);
+        await supabase.from('student_profiles').update({ transport_facilitated }).eq('id', id);
+        const { error } = await supabase.from('students').update({ transport_facilitated }).eq('id', id);
+        
+        if (error) {
+           console.warn('Supabase update failed, saving locally instead. Ensure transport_facilitated boolean column exists in your tables.', error);
+           return { success: true, dbSynced: false, error }
+        }
+        return { success: true, dbSynced: true, error: null }
+      } catch (e) {
+         console.error(e)
+         return { success: true, dbSynced: false, error: e }
+      }
+    }
+    return { success: true, dbSynced: true, error: null }
   },
   
   getStaff: () => fetchFromSupabase('staffs'),
@@ -302,8 +370,30 @@ export const api = {
     }
   },
   
-  getResources: () => fetchFromSupabase('resources'),
-  updateResourceStatus: (id: string, status: string) => updateInSupabase('resources', id, { status }),
+  getExpenses: () => fetchFromSupabase('expenses'),
+  addExpense: (expense: any) => {
+    const id = expense.id || `EXP-${Math.floor(Math.random() * 10000)}`;
+    return insertToSupabase('expenses', { ...expense, id });
+  },
+  updateExpenseStatus: (id: string, status: string) => updateInSupabase('expenses', id, { status }),
+  deleteExpense: async (id: string) => {
+    invalidateApiCache('expenses');
+    
+    // Always persist locally to avoid UI reset
+    const current = getLocalFallback('expenses');
+    const filtered = current.filter((e: any) => e.id !== id);
+    setLocalFallback('expenses', filtered);
+
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('expenses').delete().eq('id', id);
+        return { error };
+      } catch (e) {
+        return { error: e };
+      }
+    }
+    return { error: null };
+  },
   
   getGrades: () => fetchFromSupabase('grades'),
   addGrade: async (grade: any) => {

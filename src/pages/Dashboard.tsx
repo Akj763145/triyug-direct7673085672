@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { Calendar, Users, UserCog, IndianRupee, Layers, QrCode, CheckCircle2, X, ChevronLeft, ChevronRight, Search, PartyPopper, Activity, MessageCircle, Send } from "lucide-react";
+import { Calendar, Users, UserCog, IndianRupee, Layers, QrCode, CheckCircle2, X, ChevronLeft, ChevronRight, Search, PartyPopper, Activity, MessageCircle, Send, Bus } from "lucide-react";
 import { api, apiCache } from "../lib/api";
 import { ActivityLog, Invoice } from "../types";
 import { 
@@ -60,7 +60,7 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
     students: 0,
     staff: 0,
     fees: 0,
-    resources: 0,
+    expenses: 0,
     pendingEnquiries: 0,
     pendingInvoices: 0
   });
@@ -84,6 +84,8 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
   const [staffAttendanceLoading, setStaffAttendanceLoading] = useState<boolean>(false);
   const [attendanceSearch, setAttendanceSearch] = useState<string>("");
   const [studentStatusFilter, setStudentStatusFilter] = useState<string>("All");
+  const [studentTransportFilter, setStudentTransportFilter] = useState<string>("All");
+  const [studentBatchFilter, setStudentBatchFilter] = useState<string>("All");
   const [staffAttendanceSearch, setStaffAttendanceSearch] = useState<string>("");
   const [staffStatusFilter, setStaffStatusFilter] = useState<string>("All");
   const [holidays, setHolidays] = useState<any[]>([]);
@@ -169,6 +171,15 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
     }
   };
 
+  const handleToggleTransport = async (studentId: string, currentValue: boolean) => {
+    try {
+      await api.updateStudentTransport(studentId, !currentValue);
+      setStudentList(prev => prev.map(s => s.id === studentId ? { ...s, transport_facilitated: !currentValue } : s));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const handleToggleStaffAttendance = async (staffId: string, actionStatus: string) => {
     if (!supabase) return;
     if (currentHoliday) {
@@ -247,6 +258,18 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
       });
     }
 
+    if (studentTransportFilter !== "All") {
+      filtered = filtered.filter((s: any) => {
+        if (studentTransportFilter === "Transport") return s.transport_facilitated === true;
+        if (studentTransportFilter === "No Transport") return !s.transport_facilitated;
+        return true;
+      });
+    }
+
+    if (studentBatchFilter !== "All") {
+      filtered = filtered.filter((s: any) => s.batch_id === studentBatchFilter);
+    }
+
     const searchLower = attendanceSearch.toLowerCase().trim();
     if (searchLower !== '') {
       filtered = filtered.filter((s: any) => 
@@ -255,7 +278,7 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
       );
     }
     return filtered;
-  }, [studentList, attendanceSearch, studentStatusFilter, attendanceBreakdown]);
+  }, [studentList, attendanceSearch, studentStatusFilter, studentTransportFilter, studentBatchFilter, attendanceBreakdown]);
 
   const filteredAttendanceStaff = useMemo(() => {
     let filtered = fullStaffList;
@@ -290,7 +313,7 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
         students, 
         staff, 
         invoices, 
-        resources,
+        expenses,
         holidaysData,
         studentAtt,
         staffAtt,
@@ -301,7 +324,7 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
         api.getStudents(),
         api.getStaff(),
         api.getInvoices(),
-        api.getResources(),
+        api.getExpenses(),
         supabase.from('holidays').select('*'),
         supabase.from('student_attendance').select('*').eq('date', dateStr),
         supabase.from('staff_attendance').select('*').eq('date', dateStr),
@@ -322,7 +345,7 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
         students: students.length,
         staff: staff.length,
         fees: (invoices as any[]).reduce((acc, inv) => acc + (inv.status === 'Paid' ? (inv.amount || inv.total_amount || inv.totalAmount || 0) : 0), 0),
-        resources: resources.length,
+        expenses: expenses.length,
         pendingEnquiries: Array.isArray(enquiries) ? enquiries.filter((e: any) => e.status === 'New').length : 0,
         pendingInvoices: Array.isArray(invoices) ? invoices.filter((i: any) => i.status === 'Pending' || i.status === 'Overdue').length : 0
       });
@@ -847,7 +870,7 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
           <Tabs defaultValue="students" className="w-full">
             <div className="px-6 pt-4 border-b border-slate-50">
               <TabsList className="bg-slate-100/50 p-1 rounded-lg">
-                <TabsTrigger value="students" className="text-xs font-black px-4 data-[state=active]:bg-white data-[state=active]:shadow-sm">STUDENT ROSTER</TabsTrigger>
+                <TabsTrigger value="students" className="text-xs font-black px-4 data-[state=active]:bg-white data-[state=active]:shadow-sm">STUDENT REGISTER</TabsTrigger>
                 <TabsTrigger value="staff" className="text-xs font-black px-4 data-[state=active]:bg-white data-[state=active]:shadow-sm">STAFF REGISTER</TabsTrigger>
               </TabsList>
             </div>
@@ -884,15 +907,36 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
                         </Badge>
                       )}
                     </div>
-                    <div className="relative w-full sm:w-64">
-                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-                      <input
-                        type="text"
-                        placeholder="Filter by name or ID..."
-                        value={attendanceSearch}
-                        onChange={(e) => setAttendanceSearch(e.target.value)}
-                        className="w-full text-xs h-8 pl-8 pr-3 border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                      />
+                    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                      <select 
+                        value={studentBatchFilter} 
+                        onChange={(e) => setStudentBatchFilter(e.target.value)}
+                        className="text-xs h-8 px-2 border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium text-slate-600 outline-none max-w-[150px] truncate"
+                      >
+                        <option value="All">All Batches</option>
+                        {dashboardBatches.map(b => (
+                          <option key={b.id} value={b.id}>{b.name}</option>
+                        ))}
+                      </select>
+                      <select 
+                        value={studentTransportFilter} 
+                        onChange={(e) => setStudentTransportFilter(e.target.value)}
+                        className="text-xs h-8 px-2 border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium text-slate-600 outline-none max-w-[150px] truncate"
+                      >
+                        <option value="All">All Transport</option>
+                        <option value="Transport">Using Transport</option>
+                        <option value="No Transport">No Transport</option>
+                      </select>
+                      <div className="relative w-full sm:w-64">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Filter by name or ID..."
+                          value={attendanceSearch}
+                          onChange={(e) => setAttendanceSearch(e.target.value)}
+                          className="w-full text-xs h-8 pl-8 pr-3 border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
                     </div>
                   </div>
                   <div className="max-h-[300px] overflow-y-auto divide-y divide-slate-100">
@@ -912,6 +956,13 @@ export function Dashboard({ isWelcomeActive = false }: { isWelcomeActive?: boole
                             </div>
                           </div>
                           <div className="flex items-center gap-4 shrink-0">
+                            <button
+                              onClick={() => handleToggleTransport(student.id, student.transport_facilitated || false)}
+                              title={student.transport_facilitated ? "Using Transport" : "No Transport"}
+                              className={`h-7 w-7 rounded border flex items-center justify-center transition-all shrink-0 ${student.transport_facilitated ? 'bg-amber-100 text-amber-600 border-amber-200' : 'bg-slate-50 text-slate-300 border-slate-100 hover:text-slate-400 hover:border-slate-300'}`}
+                            >
+                              <Bus className="h-3 w-3" />
+                            </button>
                             <Badge variant={status === "Present" ? "success" : status === "Absent" ? "destructive" : status === "Late" || status === "Excused" ? "warning" : "secondary"} className="text-[9px] font-black uppercase px-2 py-0.5 w-[60px] justify-center shrink-0 hidden sm:inline-flex">
                               {status}
                             </Badge>

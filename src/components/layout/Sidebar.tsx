@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Users, UserCog, Receipt, BookOpen, Layers, LogOut, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Users, UserCog, Receipt, BookOpen, Layers, LogOut, ShieldCheck, Banknote } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { motion, AnimatePresence } from "motion/react";
@@ -63,7 +63,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     { name: "Batch & Installments", to: "/batches", icon: Layers, permissionKey: "batches" as const },
     { name: "Fee Management", to: "/fees", icon: Receipt, permissionKey: "fees" as const },
     { name: "Ledger Management", to: "/ledger", icon: BookOpen, permissionKey: "ledger" as const },
-    { name: "Resource Management", to: "/resources", icon: Layers, permissionKey: "resources" as const },
+    { name: "Expense Management", to: "/expenses", icon: Banknote, permissionKey: "expenses" as const },
   ];
 
   // Filter items matching the user permissions

@@ -72,9 +72,9 @@ const MODULE_INFOS: { key: PermissionKey; name: string; desc: string; icon: any 
     icon: BookOpen 
   },
   { 
-    key: "resources", 
-    name: "Resource Management", 
-    desc: "Equipment tracking, reserving science lab kits, Zoom credentials, and physical assets.",
+    key: "expenses", 
+    name: "Expense Management", 
+    desc: "Operational costs, utilities, salary, and miscellaneous financial outgoings tracking.",
     icon: Layers 
   },
   { 
@@ -106,10 +106,7 @@ export function Permissions() {
   });
   const [userLoading, setUserLoading] = useState(false);
 
-  // For standard user test drive testing:
-  const [currentTestRole, setCurrentTestRole] = useState(() => {
-    return localStorage.getItem("triyuga_user_role") || "Admin";
-  });
+
 
   useEffect(() => {
     const fetchData = async () => {
@@ -184,7 +181,7 @@ export function Permissions() {
           batches: false,
           fees: true,
           ledger: false,
-          resources: true,
+          expenses: true,
         });
         break;
       case "strict_office":
@@ -195,7 +192,7 @@ export function Permissions() {
           batches: false,
           fees: false,
           ledger: false,
-          resources: true,
+          expenses: true,
         });
         break;
       case "lockdown":
@@ -206,7 +203,7 @@ export function Permissions() {
           batches: false,
           fees: false,
           ledger: false,
-          resources: false,
+          expenses: false,
         });
         break;
       case "full":
@@ -217,7 +214,7 @@ export function Permissions() {
           batches: true,
           fees: true,
           ledger: true,
-          resources: true,
+          expenses: true,
         });
         break;
     }
@@ -262,16 +259,7 @@ export function Permissions() {
     }
   };
 
-  const handleSwitchRoleTest = (role: string) => {
-    localStorage.setItem("triyuga_user_role", role);
-    if (role === "Admin") {
-      localStorage.setItem("triyuga_user_fullname", "System Administrator");
-    } else {
-      localStorage.setItem("triyuga_user_fullname", `Office ${role}`);
-    }
-    setCurrentTestRole(role);
-    window.dispatchEvent(new Event('triyuga_permissions_updated'));
-  };
+
 
   return (
     <div className="space-y-6 pb-20">
@@ -286,34 +274,7 @@ export function Permissions() {
             </p>
           </div>
           
-          <div className="flex flex-col items-end shrink-0 max-sm:w-full">
-            <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Role Performance Switch (Test Drive)</span>
-            <div className="flex gap-1.5 mt-2 bg-slate-100 p-1 rounded-full border border-slate-200 w-full justify-center">
-              <button
-                onClick={() => handleSwitchRoleTest("Admin")}
-                className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
-                  currentTestRole === "Admin" 
-                    ? "bg-[#1CA751] text-white shadow-sm" 
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-                }`}
-              >
-                Admin (Full)
-              </button>
-              {allRoles.filter(r => r !== "Admin").slice(0, 2).map(role => (
-                <button
-                  key={role}
-                  onClick={() => handleSwitchRoleTest(role)}
-                  className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
-                    currentTestRole === role 
-                      ? "bg-[#1CA751] text-white shadow-sm" 
-                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-                  }`}
-                >
-                  {role}
-                </button>
-              ))}
-            </div>
-          </div>
+
         </div>
       </div>
 

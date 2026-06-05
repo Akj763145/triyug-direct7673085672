@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
-import { Search, Plus, Edit, Eye, ChevronLeft, ChevronRight, UserPlus, Download, Upload, ArrowUpCircle, GraduationCap, Loader2 } from "lucide-react";
+import { Search, Plus, Edit, Eye, ChevronLeft, ChevronRight, UserPlus, Download, Upload, ArrowUpCircle, GraduationCap, Loader2, Bus } from "lucide-react";
 import { Skeleton } from "../components/ui/skeleton";
 import { Checkbox } from "../components/ui/checkbox";
 import { api, apiCache } from "../lib/api";
@@ -34,6 +34,7 @@ export function Students() {
   const [gradeFilter, setGradeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [batchFilter, setBatchFilter] = useState("All");
+  const [transportFilter, setTransportFilter] = useState("All");
   const [sortBy, setSortBy] = useState<"name" | "batch" | "newest">("newest");
   const [batches, setBatches] = useState<any[]>([]);
 
@@ -94,8 +95,10 @@ export function Students() {
     const matchesGrade = gradeFilter === "All" || s.grade === gradeFilter;
     const matchesStatus = statusFilter === "All" || s.status === statusFilter;
     const matchesBatch = batchFilter === "All" || s.batch_id === batchFilter;
+    const matchesTransport = transportFilter === "All" || 
+      (transportFilter === "Transport" ? s.transport_facilitated === true : !s.transport_facilitated);
     
-    return matchesSearch && matchesGrade && matchesStatus && matchesBatch;
+    return matchesSearch && matchesGrade && matchesStatus && matchesBatch && matchesTransport;
   });
 
   const sortedStudents = React.useMemo(() => {
@@ -137,7 +140,7 @@ export function Students() {
 
   useEffect(() => {
     setCurrentPage(1); // Reset to first page when filtering
-  }, [search, gradeFilter, statusFilter, batchFilter, sortBy]);
+  }, [search, gradeFilter, statusFilter, batchFilter, transportFilter, sortBy]);
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -211,6 +214,15 @@ export function Students() {
       }
     } catch (err) {
       console.error("Error toggling status:", err);
+    }
+  };
+
+  const handleToggleTransport = async (studentId: string, currentValue: boolean) => {
+    try {
+      await api.updateStudentTransport(studentId, !currentValue);
+      setStudents(prev => prev.map(s => s.id === studentId ? { ...s, transport_facilitated: !currentValue } : s));
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -328,7 +340,7 @@ export function Students() {
           </div>
         </Card>
         
-        <div className="col-span-1 lg:col-span-9 grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div className="col-span-1 lg:col-span-9 grid grid-cols-2 md:grid-cols-5 gap-2">
           <div>
             <select 
               value={gradeFilter}
@@ -355,6 +367,17 @@ export function Students() {
             >
               <option value="All">All Batches</option>
               {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <select 
+              value={transportFilter}
+              onChange={(e) => setTransportFilter(e.target.value)}
+              className="w-full h-10 px-3 py-2 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
+            >
+              <option value="All">All Transport</option>
+              <option value="Transport">Using Transport</option>
+              <option value="No Transport">No Transport</option>
             </select>
           </div>
           <div>
@@ -458,6 +481,15 @@ export function Students() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          className={`h-8 w-8 ${student.transport_facilitated ? 'text-amber-500 bg-amber-50 shadow-sm border border-amber-200/50' : 'text-slate-400'}`}
+                          onClick={() => handleToggleTransport(student.id, student.transport_facilitated || false)}
+                          title={student.transport_facilitated ? "Using Transport" : "No Transport"}
+                        >
+                          <Bus className="h-4 w-4" />
+                        </Button>
                         <Button 
                           variant="ghost" 
                           size="icon" 
