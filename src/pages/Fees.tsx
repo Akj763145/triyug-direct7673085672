@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 import { Card, CardContent } from "../components/ui/card";
 import { IndianRupee, X, Calendar, User, Send, FileText, CheckCircle2, Search, MessageCircle } from "lucide-react";
 import { api, apiCache } from "../lib/api";
@@ -51,22 +52,27 @@ export function Fees() {
     setSelectedForBulk(new Set());
   }, [selectedList]);
 
+  const loadData = async () => {
+    const [invoicesData, batchesData] = await Promise.all([
+      api.getInvoices(),
+      api.getBatches()
+    ]);
+    if (invoicesData) {
+      setInvoices(invoicesData as Invoice[]);
+    }
+    if (batchesData) {
+      setBatches(batchesData as { id: string; name: string }[]);
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const loadData = async () => {
-      const [invoicesData, batchesData] = await Promise.all([
-        api.getInvoices(),
-        api.getBatches()
-      ]);
-      if (invoicesData) {
-        setInvoices(invoicesData as Invoice[]);
-      }
-      if (batchesData) {
-        setBatches(batchesData as { id: string; name: string }[]);
-      }
-      setLoading(false);
-    };
     loadData();
   }, []);
+
+  useAutoRefresh(() => {
+    loadData();
+  }, ['invoices', 'batches']);
 
   const [search, setSearch] = useState("");
 

@@ -3,7 +3,7 @@ import { Student, Staff, LedgerInvoice, LedgerTransaction, Expense, ActivityLog 
 
 // Setup short-lived in-memory lookup cache to provide lightning fast dashboard and profile transitions
 export const apiCache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL_MS = 5000; // 5 seconds memory cache for background polling accuracy
+const CACHE_TTL_MS = 60000; // 60 seconds memory cache for repeated views
 
 export function invalidateApiCache(table?: string) {
   if (table) {
