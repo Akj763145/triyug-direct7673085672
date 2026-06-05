@@ -3,7 +3,7 @@ import { Card, CardContent } from "../components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { IndianRupee, Plus, CheckCircle2, Search, Filter, ArrowUpDown, X, Paperclip, FileText, UploadCloud, Download, Printer, Check, Ban, Lock, ShieldCheck, AlertCircle, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { IndianRupee, Plus, CheckCircle2, Search, Filter, ArrowUpDown, X, Paperclip, FileText, UploadCloud, Download, Printer, Check, Ban, Lock, ShieldCheck, AlertCircle, Trash2, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { api } from "../lib/api";
@@ -66,6 +66,8 @@ export function Expenses() {
   const [expenseDate, setExpenseDate] = useState("");
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
+  const [savingExpense, setSavingExpense] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [openDialog, setOpenDialog] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -128,6 +130,8 @@ export function Expenses() {
 
   const handleAddExpense = async () => {
     if (!description || !amount || !expenseDate) return;
+    
+    setSavingExpense(true);
 
     let finalCategory = category;
     if (category === "Custom" && customCategory) {
@@ -186,52 +190,73 @@ export function Expenses() {
     setCustomCategory("");
     setExpenseDate("");
     setReceiptFile(null);
+    setSavingExpense(false);
     loadExpenses();
   };
 
   const approveExpense = async (id: string, expName: string) => {
-    await api.updateExpenseStatus(id, "Approved");
-    await api.addActivityLog({
-      action: `Approved expense: ${expName}`,
-      module: "Expenses",
-      time: new Date().toISOString().split('T')[0],
-      user: localStorage.getItem("triyuga_user_fullname") || "Admin"
-    });
-    loadExpenses();
-  };
-
-  const rejectExpense = async (id: string, expName: string) => {
-    await api.updateExpenseStatus(id, "Rejected");
-    await api.addActivityLog({
-      action: `Rejected expense: ${expName}`,
-      module: "Expenses",
-      time: new Date().toISOString().split('T')[0],
-      user: localStorage.getItem("triyuga_user_fullname") || "Admin"
-    });
-    loadExpenses();
-  };
-
-  const markPaid = async (id: string, expName: string) => {
-    await api.updateExpenseStatus(id, "Paid");
-    await api.addActivityLog({
-      action: `Marked expense paid: ${expName}`,
-      module: "Expenses",
-      time: new Date().toISOString().split('T')[0],
-      user: localStorage.getItem("triyuga_user_fullname") || "Admin"
-    });
-    loadExpenses();
-  };
-
-  const handleDeleteExpenseRow = async (id: string, expDesc: string) => {
-    if (confirm(`Are you sure you want to delete the expense: "${expDesc}"?`)) {
-      await api.deleteExpense(id);
+    setActionLoadingId(id);
+    try {
+      await api.updateExpenseStatus(id, "Approved");
       await api.addActivityLog({
-        action: `Deleted expense record: ${expDesc}`,
+        action: `Approved expense: ${expName}`,
         module: "Expenses",
         time: new Date().toISOString().split('T')[0],
         user: localStorage.getItem("triyuga_user_fullname") || "Admin"
       });
-      loadExpenses();
+      await loadExpenses();
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const rejectExpense = async (id: string, expName: string) => {
+    setActionLoadingId(id);
+    try {
+      await api.updateExpenseStatus(id, "Rejected");
+      await api.addActivityLog({
+        action: `Rejected expense: ${expName}`,
+        module: "Expenses",
+        time: new Date().toISOString().split('T')[0],
+        user: localStorage.getItem("triyuga_user_fullname") || "Admin"
+      });
+      await loadExpenses();
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const markPaid = async (id: string, expName: string) => {
+    setActionLoadingId(id);
+    try {
+      await api.updateExpenseStatus(id, "Paid");
+      await api.addActivityLog({
+        action: `Marked expense paid: ${expName}`,
+        module: "Expenses",
+        time: new Date().toISOString().split('T')[0],
+        user: localStorage.getItem("triyuga_user_fullname") || "Admin"
+      });
+      await loadExpenses();
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleDeleteExpenseRow = async (id: string, expDesc: string) => {
+    if (confirm(`Are you sure you want to delete the expense: "${expDesc}"?`)) {
+      setActionLoadingId(id);
+      try {
+        await api.deleteExpense(id);
+        await api.addActivityLog({
+          action: `Deleted expense record: ${expDesc}`,
+          module: "Expenses",
+          time: new Date().toISOString().split('T')[0],
+          user: localStorage.getItem("triyuga_user_fullname") || "Admin"
+        });
+        await loadExpenses();
+      } finally {
+        setActionLoadingId(null);
+      }
     }
   };
   
@@ -502,8 +527,9 @@ export function Expenses() {
                 </div>
               </div>
               <DialogFooter>
-                <Button onClick={handleAddExpense} disabled={uploadingReceipt}>
-                  {uploadingReceipt ? "Saving & Uploading..." : "Save Expense"}
+                <Button onClick={handleAddExpense} disabled={uploadingReceipt || savingExpense}>
+                  {(uploadingReceipt || savingExpense) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {uploadingReceipt ? "Uploading..." : savingExpense ? "Saving..." : "Save Expense"}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -790,17 +816,19 @@ export function Expenses() {
                                   variant="outline"
                                   size="sm"
                                   onClick={() => approveExpense(exp.id, exp.description)}
+                                  disabled={actionLoadingId === exp.id}
                                   className="text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-200 font-semibold"
                                 >
-                                  <Check className="h-3.5 w-3.5 mr-1 text-emerald-600" /> Approve
+                                  {actionLoadingId === exp.id ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Check className="h-3.5 w-3.5 mr-1 text-emerald-600" />} {actionLoadingId === exp.id ? "Approving..." : "Approve"}
                                 </Button>
                                 <Button
                                   variant="outline"
                                   size="sm"
                                   onClick={() => rejectExpense(exp.id, exp.description)}
+                                  disabled={actionLoadingId === exp.id}
                                   className="text-destructive hover:bg-destructive/5 hover:text-destructive border-transparent hover:border-destructive/30 font-semibold"
                                 >
-                                  <Ban className="h-3.5 w-3.5 mr-1 text-destructive" /> Reject
+                                  {actionLoadingId === exp.id ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Ban className="h-3.5 w-3.5 mr-1 text-destructive" />} {actionLoadingId === exp.id ? "Rejecting..." : "Reject"}
                                 </Button>
                               </div>
                             ) : (
@@ -816,8 +844,9 @@ export function Expenses() {
                                 size="sm" 
                                 className="bg-primary/5 border-primary/20 hover:bg-primary/10 text-primary font-semibold"
                                 onClick={() => markPaid(exp.id, exp.description)}
+                                disabled={actionLoadingId === exp.id}
                               >
-                                <CheckCircle2 className="mr-1 h-4 w-4 text-primary" /> Mark Paid
+                                {actionLoadingId === exp.id ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-1 h-4 w-4 text-primary" />} {actionLoadingId === exp.id ? "Processing..." : "Mark Paid"}
                               </Button>
                             </div>
                           ) : exp.status === "Rejected" ? (
@@ -827,9 +856,10 @@ export function Expenses() {
                                 variant="ghost" 
                                 size="sm" 
                                 onClick={() => handleDeleteExpenseRow(exp.id, exp.description)}
+                                disabled={actionLoadingId === exp.id}
                                 className="text-slate-400 hover:text-red-500 hover:bg-red-50 h-8 px-2"
                               >
-                                <Trash2 className="h-4 w-4" /> Delete
+                                {actionLoadingId === exp.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Delete
                               </Button>
                             </div>
                           ) : (
@@ -837,9 +867,10 @@ export function Expenses() {
                               variant="outline" 
                               size="sm" 
                               onClick={() => markPaid(exp.id, exp.description)}
+                              disabled={actionLoadingId === exp.id}
                               className="font-semibold"
                             >
-                              <CheckCircle2 className="mr-1.5 h-4 w-4 text-emerald-600" /> Mark Paid
+                              {actionLoadingId === exp.id ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin text-emerald-600" /> : <CheckCircle2 className="mr-1.5 h-4 w-4 text-emerald-600" />} {actionLoadingId === exp.id ? "Processing..." : "Mark Paid"}
                             </Button>
                           )}
                         </div>

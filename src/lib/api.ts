@@ -107,8 +107,8 @@ async function insertToSupabase(table: string, payload: any) {
   invalidateApiCache(table);
   // Clear related caches
   if (table === 'students' || table === 'student_profiles') {
-    apiCache.delete('students');
-    apiCache.delete('student_profiles');
+    if (table !== 'students') invalidateApiCache('students');
+    if (table !== 'student_profiles') invalidateApiCache('student_profiles');
   }
   if (supabase) {
     try {
@@ -159,8 +159,8 @@ async function insertToSupabase(table: string, payload: any) {
 async function updateInSupabase(table: string, id: string, payload: any) {
   invalidateApiCache(table);
   if (table === 'students' || table === 'student_profiles') {
-    apiCache.delete('students');
-    apiCache.delete('student_profiles');
+    if (table !== 'students') invalidateApiCache('students');
+    if (table !== 'student_profiles') invalidateApiCache('student_profiles');
   }
   if (supabase) {
     try {

@@ -134,8 +134,9 @@ export default function App() {
       });
       
       // Global real-time listener for multi-user seamless updates
+      let globalRealtime: any = null;
       if (supabase) {
-        const globalRealtime = supabase
+        globalRealtime = supabase
           .channel('global-app-sync')
           .on(
             'postgres_changes',
@@ -147,11 +148,23 @@ export default function App() {
             }
           )
           .subscribe();
-
-        return () => {
-          supabase.removeChannel(globalRealtime);
-        };
       }
+      
+      // Cross-tab synchronization (particularly robust for local development without Supabase connections)
+      const handleStorageEvent = (e: StorageEvent) => {
+        if (e.key && e.key.startsWith('triyuga_db_')) {
+          const table = e.key.replace('triyuga_db_', '');
+          invalidateApiCache(table);
+        }
+      };
+      window.addEventListener('storage', handleStorageEvent);
+
+      return () => {
+        if (supabase && globalRealtime) {
+          supabase.removeChannel(globalRealtime);
+        }
+        window.removeEventListener('storage', handleStorageEvent);
+      };
     }
   }, [isAuthenticated]);
 
